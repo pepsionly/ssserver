@@ -54,8 +54,6 @@ class CommonUtils(object):
             text_arr.append(text[(len(text_arr) * lenth):])
         return text_arr
 
-
-
     @staticmethod
     def get_address_list(first_address, count):
         """
@@ -71,8 +69,8 @@ class CommonUtils(object):
         for i in range(1, count):
             first_address_int = int(first_address, 16)
             new_address_int = first_address_int + i
-            # 补位
-            new_address_hex = "0x%04x" % new_address_int
+            # 转化成0x00AB格式
+            new_address_hex = "0x%04X" % new_address_int
             address_list.append(new_address_hex)
         return address_list
     

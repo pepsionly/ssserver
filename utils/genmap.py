@@ -1,11 +1,9 @@
 import os
-import sqlite3
 import sys
 import pandas as pd
 from sqlalchemy import create_engine
 
 import config
-from utils.mapper import Mapper
 
 if __name__ == '__main__':
 

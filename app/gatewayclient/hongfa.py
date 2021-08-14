@@ -4,7 +4,7 @@ import app
 from app.gatewayclient import GatewayClient
 from utils.__init__ import CommonUtils
 from utils.log import Log
-from utils.mapper import Mapper
+from data.mapper import Mapper
 
 logger = Log(__name__).getlog()
 
@@ -35,9 +35,8 @@ class HongFa(GatewayClient):
         if msg_obj.get('DataUp04'):
             self.handle_auto_report(topic, msg_obj)
         # 处理消息分类二：断路器上线
-        if msg_obj.get('GWD_RAW_04'):
+        if msg_obj.get('SD_RAW_04'):
             self.handle_switch_online(topic, msg_obj)
-
         logger.info(topic)
         logger.info(msg_obj)
 
@@ -56,9 +55,7 @@ class HongFa(GatewayClient):
 
         data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj)
         data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj)
-        print(modbus_data_s)
         data_s['OL'] = True
-        print(data_s)
         self.redis_conn.set('switch:%s' % data_s['SID'], json.dumps(data_s))
         self.redis_conn.set('gateway:%s' % data_gw['GWID'], json.dumps(data_gw))
 

@@ -4,7 +4,7 @@ from . import MqttClient
 from utils.__init__ import *
 from utils.log import Log
 from .. import gatewayclient
-
+from config.dev import DevelopmentConfig
 logger = Log(__name__).getlog()
 
 
@@ -46,6 +46,8 @@ class MqttClient(MqttClient):
                 print("Failed to connect, return code %d\n", rc)
         client = mqtt_client.Client(self.conf.client_id)
         client.on_connect = on_connect
+        # 生产配置抑制mqtt回调异常
+        client.suppress_exceptions = False if isinstance(self.conf, DevelopmentConfig) else True
         client.username_pw_set(self.conf.MQTT_USERNAME, password=self.conf.MQTT_PASSWORD)
         client.on_message = self.event_received
         client.on_publish = self.event_publish

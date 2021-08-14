@@ -1,22 +1,19 @@
 import os
 import re
 import sqlite3
-
-from sqlalchemy import create_engine
-
-import app
-import config
+import pandas as pd
+from config.dev import DevelopmentConfig
 from utils import CommonUtils
 from utils.hexconverter import HexConverter
 
 class Mapper(object):
 
     def __init__(self):
-        self.conf = config.Config()
-        """print(os.getcwd())
-        print('sqlite:///%s' % self.conf.sqllite_file)"""
-        print('sqlite:///%s' % os.path.abspath(self.conf.sqllite_file))
+        self.conf = DevelopmentConfig()
         self.sqlite_conn = sqlite3.connect(os.path.abspath(self.conf.sqllite_file), check_same_thread=False)
+        if isinstance(self.conf, DevelopmentConfig):
+            pass
+            # self.prepare_map_tables('../data/')
 
     def __del__(self):
         self.sqlite_conn.close()
@@ -65,18 +62,11 @@ class Mapper(object):
         # 开始查库映射
         for address in address_list:
             address_map = self.get_by_address(brand, device_type, address)
-            print(address_map)
             if address_map:
                 data_index = address_list.index(address)
-                try:
-                    data_hex = ''.join(data_list[data_index: data_index + int(address_map['len'])])
-                except TypeError:
-                    print(address_map)
+                data_hex = ''.join(data_list[data_index: data_index + int(address_map['len'])])
                 # 进制转换
-                try:
-                    data = eval('HexConverter.hex_to_%s(data_hex)' % address_map['datatype'].strip())
-                except:
-                    print(address_map)
+                data = eval('HexConverter.hex_to_%s(data_hex)' % address_map['datatype'].strip())
                 # 处理小数点: Y/100
                 if address_map.get('format'):
                     multi_times = re.match('Y/([\d]+)', address_map['format'])
@@ -88,5 +78,30 @@ class Mapper(object):
         return result
 
 
+    @staticmethod
+    def get_file_list(directory, filetype):  # 输入路径、文件类型例如'.csv'
+        """
+        获取directory目录下的所有filetype后缀的文件名列表
+        :param directory: 文件目录
+        :param filetype:  文件后缀如.xlsx
+        :return:
+        """
+        file_list = []
+        for root, dirs, files in os.walk(directory):
+            for i in files:
+                if os.path.splitext(i)[1] == filetype and not i.startswith('~$'):
+                    file_list.append(i)
+        return file_list  # 输出由有后缀的文件名组成的列表
+
+    def prepare_map_tables(self, directory='../data/'):
+        """
+        把directory目录下的所有点位变量映射表格添加到sqlite数据库
+        :return:None
+        """
+        table_files = self.get_file_list(directory, '.xlsx')
+        for table_file in table_files:
+            df = pd.read_excel(directory + table_file)
+            table_name = table_file.split('.')[0]
+            df.to_sql(table_name, self.sqlite_conn, index=True, if_exists='replace')
 
 
