@@ -1,0 +1,124 @@
+import abc
+
+class BaseReporter(abc.ABC):
+    """
+        上报器基类
+    """
+    @abc.abstractmethod
+    def report_switch_online(self, brand, data_switch):
+        """
+            汇报断路器在线
+        """
+
+    @abc.abstractmethod
+    def update_gateway_status(self, brand, data_gw):
+        """
+            汇报网关在线
+        """
+
+    @abc.abstractmethod
+    def regular_report(self, gateway_id, switch_id, report_time, code, data):
+        """
+            定期上报的断路器数据
+        """
+
+    @abc.abstractmethod
+    def get_switch_device_type_code(self, brand, gateway_id, device_id):
+        """
+            查询断路器设备类型代码
+        """
+
+    @abc.abstractmethod
+    def get_gateway_device_type_code(self, brand, sid):
+        """
+            查询断路器设备类型代码
+        """
+
+    def report_switch_online(self, brand, data_s):
+        """
+        @param brand: hongfa/timu
+        @param data_s: 断路器数据
+            {
+                SDT:3 # 断路器设备类型代号
+                SA:1 # 断路器地址
+                SID:"4C36210605133128" # 断路器ID
+                GID:"FFD1212006105728" # 上联网关ID
+                OL:true # 是否在线
+            }
+        @return: True if success else False
+        """
+        return self._conn.set('switch_status:[%s][%s]%s' % (brand, data_s['GID'], data_s['SID']), json.dumps(data_s))
+
+    def update_gateway_status(self, brand, data_gw):
+        """
+        @param brand: hongfa/timu
+        @param data_gw:网关数据
+            {
+                GDT:23 # 网关设备类型代号
+                SCC:2 # 已配置的从设备数量
+                SCO:2 # 在线的从设备数量
+                GID:"FFD1212006105728" # 网关ID
+                OL:true # 是否在线
+            }
+        @return: True if success else False
+        """
+        return self._conn.set('gateway_status:[%s]%s' % (brand, data_gw['GID']), json.dumps(data_gw))
+
+    def regular_report(self, gateway_id, switch_id, report_time, code, data):
+
+        # 转化日期格式成'%Y-%m-%d %H:%M:%S'
+        report_time = CommonUtils.standardize_datetime_210816144502(report_time)
+        # 转化日期为时间戳
+        time_stamp = CommonUtils.datetime_timestamp(report_time)
+        payload = {
+            'gateway_id': gateway_id,
+            'switch_id': switch_id,
+            'date': time_stamp,
+            'code': code,
+            'data': data,
+        }
+        self._conn.lpush('switch_data', json.dumps(payload))
+
+    def get_switch_status(self, brand, gid, sid):
+        """
+        @param brand: 设备品牌 hongfa/timu
+        @param gid: 上联网关ID
+        @param sid: 断路器ID
+        @return: 断路器状态数据 or None
+        """
+        key = 'switch_status:[%s][%s]%s' % (brand, gid, sid)
+        switch_status = self._conn.get(key)
+        if not switch_status:
+            return None
+        return json.loads(switch_status)
+
+    def get_switch_device_type_code(self, brand, gid, sid):
+        """
+        @param brand: 设备品牌 hongfa/timu
+        @param gid: 上联网关ID
+        @param sid: 断路器ID
+        @return:  断路器设备类型代号 3/5
+        """
+        switch_status = self.get_switch_status(brand, gid, sid)
+        return switch_status if not switch_status else switch_status.get('SDT')
+
+    def get_gateway_status(self, brand, gid):
+        """
+        @param brand: 设备品牌 hongfa/timu
+        @param gid: 网关ID
+        @return: 网关状态数据 or None
+        """
+        key = 'gateway_status:[%s]%s' % (brand, gid)
+        gateway_status = self._conn.get(key)
+        if not gateway_status:
+            return None
+        return json.loads(gateway_status)
+
+    def get_gateway_device_type_code(self, brand, gid):
+        """
+        @param brand: 设备品牌 hongfa/timu
+        @param gid: 网关ID
+        @return: 网关设备类型代号 23/24等
+        """
+        gateway_status = self.get_gateway_status(brand, gid)
+        return gateway_status if not gateway_status else gateway_status.get('GDT')

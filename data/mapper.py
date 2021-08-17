@@ -99,6 +99,7 @@ class Mapper(object):
         """
         table_files = self.get_file_list(directory, '.xlsx')
         for table_file in table_files:
+            # 这里文件未关闭，生产环境不读xlsx问题不大
             df = pd.read_excel(directory + table_file)
             table_name = table_file.split('.')[0]
             df.to_sql(table_name, self.sqlite_conn, index=True, if_exists='replace')

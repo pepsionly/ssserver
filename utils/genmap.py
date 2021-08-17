@@ -2,15 +2,13 @@ import os
 import sys
 import pandas as pd
 from sqlalchemy import create_engine
-
 import config
 
 if __name__ == '__main__':
 
-    """mapper = Mapper()
-    row = mapper.get_by_address('hongfa', '3p', '0x0000')"""
-
-
+    """
+        已有data.mapper.prepare_map_tables 替代，此脚本废弃
+    """
 
     # pandas的一些设置，打印数据看起来舒服些
     # pandas.DataFrame显示所有列

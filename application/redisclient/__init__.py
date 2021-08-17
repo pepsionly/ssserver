@@ -1,11 +1,9 @@
-import json
 from urllib.parse import urlparse, parse_qs
 import redis
 import config
-from app.reporter import BaseReporter
-from utils import CommonUtils
+from .model import RedisModel
 
-class RedisConn(BaseReporter):
+class RedisConn(object):
     def __init__(self, **kwargs):
         conf = config.Config()
         self.redis_url = 'redis://:%s@%s:%s/0?client_name=python_dev' % \
@@ -47,44 +45,23 @@ class RedisConn(BaseReporter):
         else:
             return True
 
-    def report_switch_online(self, brand, data_s, data_gw=''):
-        if data_s:
-            self._conn.set('switch_status:[%s]%s' % (brand, data_s['SID']), json.dumps(data_s))
-        if data_gw:
-            self._conn.set('gateway_status:[%s]%s' % (brand, data_gw['GID']), json.dumps(data_gw))
+    def set_one(self, redis_model):
+        assert isinstance(redis_model, RedisModel)
+        key = redis_model.key
+        payload = redis_model.json
+        return self._conn.set(key, payload)
 
-    def regular_report(self, gateway_id, switch_id, report_time, code, data):
+    def get_one(self, redis_model):
+        assert isinstance(redis_model, RedisModel)
+        key = redis_model.key
+        data = self._conn.get(key)
+        return redis_model.load(data)
 
-        # 转化日期格式成'%Y-%m-%d %H:%M:%S'
-        report_time = CommonUtils.standardize_datetime_210816144502(report_time)
-        # 转化日期为时间戳
-        time_stamp = CommonUtils.datetime_timestamp(report_time)
-        payload = {
-            'gateway_id': gateway_id,
-            'switch_id': switch_id,
-            'date': time_stamp,
-            'code': code,
-            'data   ': data,
-        }
-        self._conn.lpush('switch_data', json.dumps(payload))
-
-
-    def get_switch_device_type_code(self, brand, sid):
-        key = 'switch_status:[%s]%s' % (brand, sid)
-        switch_status = self._conn.get(key)
-        if not switch_status:
-            return None
-        switch_status = json.loads(switch_status)
-        return switch_status.get('SDT')
-
-
-    def get_gateway_device_type_code(self, brand, gid):
-        key = 'gateway_status:[%s]%s' % (brand, gid)
-        gateway_status = self._conn.get(key)
-        if not gateway_status:
-            return None
-        gateway_status = json.loads(gateway_status)
-        return gateway_status.get('GDT')
+    def left_push(self, redis_model):
+        assert isinstance(redis_model, RedisModel)
+        key = redis_model.key
+        payload = redis_model.json
+        return self._conn.lpush(key, payload)
 
     def example1(self):
         """

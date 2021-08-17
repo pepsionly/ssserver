@@ -4,6 +4,15 @@ import struct
 class HexConverter:
 
     @staticmethod
+    def hex_to_utinyint(s):
+        """
+        :param s: '1C'
+        :return: 28
+        """
+        s = "%04X" % int(s)
+        return HexConverter.hex_to_ushort(s)
+
+    @staticmethod
     def hex_to_hex(s):
         """
         他读到是啥就是啥,不用转换
