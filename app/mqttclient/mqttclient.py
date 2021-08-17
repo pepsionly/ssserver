@@ -27,7 +27,6 @@ class MqttClient(MqttClient):
     def event_received(self, client, userdata, msg):
         """data = message.payload.decode("utf-8")
         logging.info("received url %r %r", message.topic, str(data))"""
-        # print(f"unhandled `{msg.payload.decode()}` from `{msg.topic}` topic")
         logger.warning(f"unhandled `{msg.payload.decode()}` from `{msg.topic}` topic")
 
     def event_publish(self, client, userdata, result):
@@ -68,7 +67,6 @@ class MqttClient(MqttClient):
 
         for i in range(len(topics)):
             self.subscribe(topics[i])
-            print(topics[i])
             if hanlders[i]:
                 self.add_message_handler(topics[i], hanlders[i])
 

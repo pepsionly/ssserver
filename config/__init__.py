@@ -13,11 +13,11 @@ class Config(object):
 
     # 配置redis
     # 项目上线以后，这个地址就会被替换成真实IP地址，mysql也是
-    # REDIS_HOST = '192.168.30.2'
-    REDIS_HOST = '192.168.0.218'
+    REDIS_HOST = '192.168.30.6'
+    # REDIS_HOST = '192.168.0.218'
     REDIS_PORT = '6379'
-    # REDIS_PASSWORD = 'xyz123456'
-    REDIS_PASSWORD = 'Pyth.2021'
+    REDIS_PASSWORD = 'xyz123456'
+    # REDIS_PASSWORD = 'Pyth.2021'
     REDIS_POLL = 16
 
     # MQTT配置
@@ -32,7 +32,7 @@ class Config(object):
     MQTT_LAST_WILL_QOS = 2
 
     # 其他
-    hongfa_subscribe = ["hongfa/+/upload/"]
+    hongfa_subscribe = ["hongfa/+/upload/", 'hongfa/+/will/']
     hongfa_publish = "hongfa/+/download/"
     client_id = 'python_client_test'
     sqllite_file = '../data/sqlite.db'

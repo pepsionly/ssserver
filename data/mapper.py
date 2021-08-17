@@ -12,8 +12,7 @@ class Mapper(object):
         self.conf = DevelopmentConfig()
         self.sqlite_conn = sqlite3.connect(os.path.abspath(self.conf.sqllite_file), check_same_thread=False)
         if isinstance(self.conf, DevelopmentConfig):
-            pass
-            # self.prepare_map_tables('../data/')
+            self.prepare_map_tables('../data/')
 
     def __del__(self):
         self.sqlite_conn.close()
@@ -42,12 +41,12 @@ class Mapper(object):
         表名同config目录下的xlsx文件
         :param address: 0x0000
         :param brand: hongfa/timu
-        :param device_type: gateway/1p/3p
+        :param device_type: GW/1PNL/3PN
         :return: row, cursor交由装饰器函数提取表头并打包成字典
         """
-        # 按地址查询
-        sql = "SELECT * FROM %s_%s_map WHERE address = '%s'"
-        cursor = self.sqlite_conn.execute(sql % (brand, device_type, address))
+        # 按地址查询,device_type有些事数字开头不能做表头，所以统一在前面在'A', 比如'A3PN=1'表示3PN设备支持对应行的变量
+        sql = "SELECT * FROM %s_%s_map WHERE address = '%s' AND A%s=1"
+        cursor = self.sqlite_conn.execute(sql % (brand, device_type[0:2], address, device_type))
         for row in cursor:
             return row, cursor
         # 空查询返回None
@@ -73,7 +72,7 @@ class Mapper(object):
                     if multi_times:
                         multi_times = float(multi_times[1])
                         data = data / multi_times
-                result[address_map['key']] = data
+                result[address_map['id']] = data
 
         return result
 

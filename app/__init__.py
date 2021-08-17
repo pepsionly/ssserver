@@ -1,11 +1,12 @@
 import sys
 
 from flask import Flask
+
+from app.reporter.redisclient import RedisConn
 from config.dev import DevelopmentConfig
 from config.prop import ProductionConfig
 from app.mqttclient.mqttclient import MqttClient
 from app.gatewayclient.hongfa import HongFa
-from app.redisclient import RedisConn
 
 if __name__ == '__main__':
 
@@ -17,16 +18,20 @@ if __name__ == '__main__':
     # 加载配置
     app.config.from_object(conf)
 
-    # 初始化mqtt客户端
-    mqtt_client = MqttClient(conf)
-    hongfa_client = HongFa(conf)
 
-    # 连接mqtt服务器
+    # 初始化/连接mqtt客户端
+    mqtt_client = MqttClient(conf)
     mqtt_client.connect_mqtt()
 
     # 绑定消息处理器
+    reporter = RedisConn(db=0, client_name='python_dev')
+    hongfa_client = HongFa(conf, reporter)
     mqtt_client.bind_gateway_client(hongfa_client)
+
+    # 启动mqtt客户端
     mqtt_client.run()
+
+
 
     @app.route('/')
     def index():
@@ -35,7 +40,6 @@ if __name__ == '__main__':
         payload = '{"GWD_RAW_04":"D3F60000001100040E001700020002FFD1212006105728","SD_RAW_04":"FE290007000F00040C000300014C36210605133128"}'
         qos = 0
         mqtt_client.publish(topic, payload, qos)
-
         return 'this is the gate way server'
 
     app.run()

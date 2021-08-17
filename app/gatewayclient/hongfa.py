@@ -1,29 +1,35 @@
 import json
 
-import app
 from app.gatewayclient import GatewayClient
 from utils.__init__ import CommonUtils
 from utils.log import Log
 from data.mapper import Mapper
+from app.reporter.redisclient import RedisConn
 
 logger = Log(__name__).getlog()
+from app.reporter import BaseReporter
+from utils.hexconverter import HexConverter
 
 
 class HongFa(GatewayClient):
 
-    def __init__(self, conf):
+    def __init__(self, conf, reporter):
         super().__init__(conf)
         self.set_subscribe_topics()
         self.set_topic_handlers()
         self.mapper = Mapper()
         self.brand = 'hongfa'
-        self.redis_conn = app.RedisConn()
+        assert isinstance(reporter, BaseReporter)
+        self.reporter = reporter
+
+    def __del__(self):
+        self.redis_conn.close()
 
     def set_subscribe_topics(self):
         self.subscribe_topics = self.conf.hongfa_subscribe
 
-    def set_topic_handlers(self):
-        self.topic_handlers = [self.handle_topic_uploads]
+    """def set_topic_handlers(self):
+        self.topic_handlers = [self.handle_topic_uploads]"""
 
     def handle_topic_uploads(self, client, userdata, msg):
         # 数据
@@ -37,10 +43,18 @@ class HongFa(GatewayClient):
         # 处理消息分类二：断路器上线
         if msg_obj.get('SD_RAW_04'):
             self.handle_switch_online(topic, msg_obj)
-        logger.info(topic)
-        logger.info(msg_obj)
+
+    def handle_topic_will(self, client, userdata, msg):
+        # 数据
+        msg_str = msg.payload.decode()
+        # 主题
+        topic = msg.topic
+        print(topic)
+        print(msg_str)
 
     def handle_switch_online(self, topic, msg_obj):
+        print(topic)
+        print(msg_obj)
         """
         :param topic: hongfa/FFD1212006105728/upload/
         :param msg_obj: {"GWD_RAW_04":"D3F60000001100040E001700020002FFD1212006105728","SD_RAW_04":"63FD000D000F00040C000500026B02210710091756"}
@@ -53,11 +67,18 @@ class HongFa(GatewayClient):
         # 断路器 Modbus TCP 原始值
         modbus_data_s = msg_obj.get('SD_RAW_04')
 
-        data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj)
-        data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj)
+        # 汇报断路器上线/网关状态/网关和断路器设备类型
+        # 截取网关设备类型代号
+        gw_device_code = HexConverter.hex_to_ushort(modbus_data_gw[18:22])
+        # 映射网关设备类型
+        gw_device_type = self.get_gateway_device_type(gw_device_code)
+        # 解析数据
+        data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
+        data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         data_s['OL'] = True
-        self.redis_conn.set('switch:%s' % data_s['SID'], json.dumps(data_s))
-        self.redis_conn.set('gateway:%s' % data_gw['GWID'], json.dumps(data_gw))
+        data_s['GID'] = gateway_id
+        data_gw['OL'] = True
+        self.reporter.report_switch_online(self.brand, data_s, data_gw)
 
     def handle_auto_report(self, topic, msg_obj):
         """
@@ -73,12 +94,24 @@ class HongFa(GatewayClient):
         switch_id = msg_obj.get('SSN')
         # Modbus TCP 原始值
         modbus_data = msg_obj.get('DataUp04')
-        """
-            待实现 Modbus TCP 原始值crc验证：
-        """
-        #
-        result = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj)
-        print(result)
+
+        # 先从reporter(redis等)获取断路器类型代号
+        device_type_code = self.reporter.get_switch_device_type_code(self.brand, switch_id)
+
+        if device_type_code:
+            device_type = self.get_switch_device_type(device_type_code)
+        elif modbus_data[4:8] == '0000':
+            # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
+            device_type = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
+            self.reporter.report_switch_online(self.brand, {'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
+                                                            'SID': switch_id,
+                                                            'GID': gateway_id,
+                                                            'OL': True,
+                                                            })
+
+        # 解析 Modbus TCP 原始值
+        result = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj, device_type=device_type)
+        self.reporter.regular_report(gateway_id, switch_id, report_time, 1, result)
 
     def validate_crc_code(parse_func):
         """
@@ -134,27 +167,31 @@ class HongFa(GatewayClient):
         data_len = CommonUtils.hex_to_int(data_len)
         # 十六数据
         data_hex = data[18:]
-
-        # 根据设备类型代号获取设备类型
-        if kwargs['kwargs']['msg_obj'].get('SSN'):
-            device_type_hex_code = data_hex[16:20]
+        if kwargs['kwargs'].get('device_type'):
+            result = self.mapper.map_address_data(first_address, data_hex, self.brand, kwargs['kwargs'].get('device_type'))
         else:
-            device_type_hex_code = 'GW'
-
-        device_type = HongFa.get_switch_device_type(device_type_hex_code)
-        result = self.mapper.map_address_data(first_address, data_hex, self.brand, device_type[0:2])
+            result = None
         return result
 
     @staticmethod
-    def get_switch_device_type(hex_code):
+    def get_switch_device_type(code):
         """
-        :param hex_code: '0005'
+        :param code: 5
         :return: 断路器的设备类型
         """
-        mapper = {'0001': '1P', '0002': '1PN', '0003': '1PNL',
-                  '0004': '3P', '0005': '3PN', '0006': '3PNL',
-                  '0012': '2P', '0016': '4P'}
-        result = mapper.get(hex_code)
-        if result:
-            return mapper.get(hex_code)
-        return 'GW'
+        mapper = {1: '1P', 2: '1PN', 3: '1PNL',
+                  4: '3P', 5: '3PN', 6: '3PNL',
+                  12: '2P', 16: '4P'}
+        return mapper.get(code)
+
+    @staticmethod
+    def get_gateway_device_type(device_code):
+        """
+        :param device_code:
+            21：WiFi版本网关
+            22：以太网RJ45网关
+            23: 4G网关
+            24: 4G网关路由
+        :return: 'GW' + 'device_code'
+        """
+        return 'GW' + str(device_code)

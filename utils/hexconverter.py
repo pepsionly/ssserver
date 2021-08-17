@@ -105,7 +105,6 @@ class HexConverter:
         """
         char_str = ''
         s = re.findall(r'.{2}', s)
-        print(s)
         for item in s:
             char_str += chr(int(item, 16))
         return char_str
