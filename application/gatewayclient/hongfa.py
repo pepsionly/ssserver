@@ -3,7 +3,6 @@ import json
 from application.gatewayclient import GatewayClient
 from utils.__init__ import CommonUtils
 from utils.log import Log
-from data.mapper import Mapper
 from application.redisclient.model.models import *
 from application.redisclient import RedisConn
 logger = Log(__name__).getlog()
@@ -12,14 +11,14 @@ from utils.hexconverter import HexConverter
 
 class HongFa(GatewayClient):
 
-    def __init__(self, conf, reporter):
+    def __init__(self, conf, redis_conn, mapper):
         super().__init__(conf)
         self.set_subscribe_topics()
         self.set_topic_handlers()
-        self.mapper = Mapper()
+        self.mapper = mapper
         self.brand = 'hongfa'
-        assert isinstance(reporter, RedisConn)
-        self.reporter = reporter
+        assert isinstance(redis_conn, RedisConn)
+        self.redis_conn = redis_conn
 
     def __del__(self):
         self.redis_conn.close()
@@ -40,8 +39,12 @@ class HongFa(GatewayClient):
         if msg_obj.get('DataUp04'):
             self.handle_auto_report(topic, msg_obj)
         # 处理消息分类二：断路器上线
-        if msg_obj.get('SD_RAW_04'):
+        elif msg_obj.get('SD_RAW_04'):
             self.handle_switch_online(topic, msg_obj)
+
+        else:
+            print(msg_obj)
+
 
     def handle_topic_will(self, client, userdata, msg):
         # 数据
@@ -77,8 +80,8 @@ class HongFa(GatewayClient):
         data_s['OL'] = data_gw['OL'] = True
         data_s['brand'] = data_gw['brand'] = self.brand
         data_s['GID'] = gateway_id
-        self.reporter.set_one(SwitchStatus(data_s))
-        self.reporter.set_one(GatewayStatus(data_gw))
+        self.redis_conn.set_one(SwitchStatus(data_s))
+        self.redis_conn.set_one(GatewayStatus(data_gw))
 
     def handle_auto_report(self, topic, msg_obj):
         """
@@ -96,7 +99,7 @@ class HongFa(GatewayClient):
         modbus_data = msg_obj.get('DataUp04')
 
         # 先从reporter(redis等)获取断路器类型代号
-        switch_status = self.reporter.get_one(SwitchStatus({
+        switch_status = self.redis_conn.get_one(SwitchStatus({
             'brand': self.brand,
             'GID': gateway_id,
             'SID': switch_id
@@ -106,13 +109,13 @@ class HongFa(GatewayClient):
         elif modbus_data[4:8] == '0000':
             # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
             device_type = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
-            self.reporter.set_one(SwitchStatus({'brand': self.brand,
+            self.redis_conn.set_one(SwitchStatus({'brand': self.brand,
                                                 'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
                                                 'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
                                                 'SID': switch_id,
                                                 'GID': gateway_id,
                                                 'OL': True,
-                                                }))
+                                                  }))
 
         # 解析 Modbus TCP 原始值
         result = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj, device_type=device_type)
@@ -122,13 +125,13 @@ class HongFa(GatewayClient):
         # 转化日期为时间戳
         time_stamp = CommonUtils.datetime_timestamp(report_time)
 
-        return self.reporter.left_push(SwitchData({'brand': self.brand,
+        return self.redis_conn.left_push(SwitchData({'brand': self.brand,
                                                    'gateway_id': gateway_id,
                                                    'switch_id': switch_id,
                                                    'date': time_stamp,
                                                    'code': 1,
                                                    'data': result,
-                                                   }))
+                                                     }))
 
     def validate_crc_code(parse_func):
         """
