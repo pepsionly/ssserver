@@ -1,6 +1,6 @@
 import json
 
-from flask import Blueprint
+from flask import Blueprint, request
 from flask import current_app as app
 from utils.hexconverter import HexConverter
 from utils import CommonUtils
@@ -15,15 +15,48 @@ redis_conn = app.redis_conn
 """
 
 
-@hongfa.route('/')
-def index():
-    brand = 'hongfa'
+@hongfa.route('/gw/set', methods=['POST'])
+def gw_set_one_demo():
+    if request.method == 'POST':
+        data = request.get_data()
+    else:
+        return '<h1>只接受post请求！</h1>'
+
+    data_obj = json.loads(data)
+
+    brand = data_obj.get('brand')
+    gid = data_obj.get('gid')
+    param_id = data_obj.get('param_id')
+    param_value = int(data_obj.get('interval') / 10)
     device_type = 'GW23'
-    id = 'id159'
+    address_map = app.mapper.get_by_id(brand, device_type, param_id)
 
-    address_map = app.mapper.get_by_id(brand, device_type, id)
+    address = address_map.get('address')[2:]  # 寄存器地址
+    unit_address = 'FF'  # 网关通讯地址
+    function_code = '06'  # 功能码
 
-    return json.dumps(address_map)
+    convert_fun = eval('HexConverter.%s_to_hex' % address_map.get('datatype'))
+    data_hex = convert_fun(param_value).upper()
+
+    # data_hex = HexConverter.ushort_to_hex(param_value).upper()
+
+    len1 = int(4 + address_map['len'] * 2)  # 数据长度（加function_code和len2）
+    hex_len = HexConverter.ushort_to_hex(len1)
+
+    modbus_data_without_crc = address + hex_len + unit_address + function_code + address + data_hex
+    print(modbus_data_without_crc)
+
+    crc = CommonUtils.cal_modbus_crc16(modbus_data_without_crc)[2:].upper()
+    modbus_data = crc + modbus_data_without_crc
+
+
+    topic = 'hongfa/FFD1212006105728/download/'
+    json_obj = {"GSN": gid, "GW_Request": modbus_data}
+    json_str = json.dumps(json_obj).replace(' ', '')
+
+    app.mqtt_client.publish(topic, json_str, 0)
+
+    return 'set data %s to %s' % (param_id, str(int(param_value/10)))
     return 'this is the gateway server!'
 
 @hongfa.route('/<string:gid>/<string:pram_id>/<int:pram_value>')
