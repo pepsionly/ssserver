@@ -36,9 +36,9 @@ if __name__ == '__main__':
     app.config.from_object(conf)
 
     # 注册蓝图和全局变量
-    from application.apis import index_blu
+    from application.hongfa_apis import hongfa
 
-    app.register_blueprint(index_blu, url_prefix='/')
+    app.register_blueprint(hongfa, url_prefix='/hongfa/')
     app.__setattr__('mqtt_client', mqtt_client)
     app.__setattr__('conf', conf)
     app.__setattr__('mapper', mapper)

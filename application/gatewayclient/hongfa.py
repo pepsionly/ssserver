@@ -124,7 +124,10 @@ class HongFa(GatewayClient):
         report_time = CommonUtils.standardize_datetime_210816144502(report_time)
         # 转化日期为时间戳
         time_stamp = CommonUtils.datetime_timestamp(report_time)
-
+        if not result:
+            # 处理CRC验证出错
+            # return None
+            pass
         return self.redis_conn.left_push(SwitchData({'brand': self.brand,
                                                    'gateway_id': gateway_id,
                                                    'switch_id': switch_id,
@@ -146,7 +149,6 @@ class HongFa(GatewayClient):
             else:
                 # 在这里处理crc校验失败的业务, 通过kwargs在'parse_tcp_data'等函数传入传入相关参数
                 logger.warning('CRC Validation Failed:' + json.dumps(kwargs))
-
         return validate
 
     @staticmethod
@@ -160,7 +162,7 @@ class HongFa(GatewayClient):
         crc_code = data[0:4]
         standard_data = data[4:] + crc_code
         result = CommonUtils.cal_modbus_crc16(standard_data)
-        result = True if result == '0x0' else False
+        result = True if int(result[2:], 16) == 0 else False
         return result
 
     @validate_crc_code

@@ -36,6 +36,23 @@ class Mapper(object):
         return zip_up
 
     @zip_col_name_and_row
+    def get_by_id(self, brand, device_type, id):
+        """
+        表名同config目录下的xlsx文件
+        :param id: id00
+        :param brand: hongfa/timu
+        :param device_type: GW/1PNL/3PN
+        :return: row, cursor交由装饰器函数提取表头并打包成字典
+        """
+        # 按地址查询,device_type有些事数字开头不能做表头，所以统一在前面在'A', 比如'A3PN=1'表示3PN设备支持对应行的变量
+        sql = "SELECT * FROM %s_%s_map WHERE id = '%s' AND A%s=1"
+        cursor = self.sqlite_conn.execute(sql % (brand, device_type[0:2], id, device_type))
+        for row in cursor:
+            return row, cursor
+        # 空查询返回None
+        return None, None
+
+    @zip_col_name_and_row
     def get_by_address(self, brand, device_type, address):
         """
         表名同config目录下的xlsx文件

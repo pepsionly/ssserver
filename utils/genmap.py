@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # 设置pandas.DataFrame 显示不换行
     pd.set_option('display.width', 10086)
 
-    df = pd.read_excel('../data/hongfa_gw_map.xlsx')
+    df = pd.read_excel('../data/hongfa_gw_map.xlsx.back')
     db_path = os.path.join(os.getcwd(), 'sqlite.db')
 
     conf = config.Config()

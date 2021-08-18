@@ -85,8 +85,10 @@ class CommonUtils(object):
                     crc ^= 0xA001
                 else:
                     crc >>= 1
-
-        return hex(((crc & 0xff) << 8) + (crc >> 8))
+        result_temp = hex(((crc & 0xff) << 8) + (crc >> 8))[2:]
+        # 高位补0
+        result = '0x%04X' % int(result_temp, 16)
+        return result
 
     @staticmethod
     def standardize_datetime_210816144502(value):
