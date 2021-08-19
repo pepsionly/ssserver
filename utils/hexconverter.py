@@ -142,3 +142,4 @@ class HexConverter:
         if val & (1 << (bits - 1)):
             val -= 1 << bits
         return val
+

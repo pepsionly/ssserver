@@ -4,6 +4,7 @@ from application.redisclient import RedisConn
 from config.dev import DevelopmentConfig
 from application.mqttclient.mqttclient import MqttClient
 from application.gatewayclient.hongfa import HongFa
+from config.const import Const
 
 if __name__ == '__main__':
     """
@@ -43,6 +44,24 @@ if __name__ == '__main__':
     app.__setattr__('conf', conf)
     app.__setattr__('mapper', mapper)
     app.__setattr__('redis_conn', redis_conn)
+
+
+    # 测试用的方法
+    @app.route('/')
+    def test_func():
+        param_dict = {
+            'id159':  15,    # 上报周期：分钟
+            'id115':  2018,  # 网关时间：年月
+            'id113':  1730,  # 网关时间：分秒
+            'id114':  1231,  # 网关时间：日时
+        }
+        device_brand = 'hongfa'
+        device_type = 'GW23'
+
+        result = mapper.map_data_address(param_dict, device_brand, device_type)
+
+        print(result)
+        return 'testing'
 
     # 启动服务端
     app.run()

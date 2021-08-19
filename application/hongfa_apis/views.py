@@ -1,4 +1,5 @@
 import json
+import re
 
 from flask import Blueprint, request
 from flask import current_app as app
@@ -17,11 +18,8 @@ redis_conn = app.redis_conn
 
 @hongfa.route('/gw/set', methods=['POST'])
 def gw_set_one_demo():
-    if request.method == 'POST':
-        data = request.get_data()
-    else:
-        return '<h1>只接受post请求！</h1>'
 
+    data = request.get_data()
     data_obj = json.loads(data)
 
     brand = data_obj.get('brand')
