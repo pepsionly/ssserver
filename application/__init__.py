@@ -40,10 +40,12 @@ if __name__ == '__main__':
     from application.hongfa_apis import hongfa
 
     app.register_blueprint(hongfa, url_prefix='/hongfa/')
+    app.__setattr__('hongfa', hongfa_client)
     app.__setattr__('mqtt_client', mqtt_client)
     app.__setattr__('conf', conf)
     app.__setattr__('mapper', mapper)
     app.__setattr__('redis_conn', redis_conn)
+
 
 
     # 测试用的方法
@@ -60,7 +62,6 @@ if __name__ == '__main__':
 
         result = mapper.map_data_address(param_dict, device_brand, device_type)
 
-        print(result)
         return 'testing'
 
     # 启动服务端

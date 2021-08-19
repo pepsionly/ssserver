@@ -1,3 +1,6 @@
+import copy
+import re
+
 from application.redisclient.model import RedisColumn, RedisModel
 
 
@@ -16,11 +19,25 @@ class SwitchStatus(RedisModel):
     GID = RedisColumn(no_null=True)
     SID = RedisColumn(no_null=True)
 
+    def __init__(self, obj):
+        # 处理 SDT1 SA1 SID1
+        obj_for_iter = copy.deepcopy(obj)
+
+        for key, value in obj_for_iter.items():
+            if re.search('([\d]+)', key):
+                new_key = re.search('([^\d]+)', key)[1]
+                obj[new_key] = obj[key]
+                del obj[key]
+
+        self.obj = obj
+        assert (self.validate_obj(obj))
+
     @property
     def key(self):
         return 'switch_status:%s:%s:%s' % (self.obj['brand'],
                                              self.obj['GID'],
-                                             self.obj['SID'])
+                                             self.obj['SID']
+                                           )
 
 class GatewayStatus(RedisModel):
     """

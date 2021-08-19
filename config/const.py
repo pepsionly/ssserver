@@ -22,3 +22,6 @@ class Const:
         self.SUCCESS = 22
         self.INVALID_PARAM_ID = 41  # ID未映射到参数或参数不可写
         self.INVALID_PARAM_VALUE = 42  # 参数值格式不正确
+        self.INVALID_JSON_STRING = 43  # 非法的json字符串
+        self.INVALID_DEVICE_TYPE = 44  # 未找到查询设备类型
+

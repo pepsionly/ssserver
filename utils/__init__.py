@@ -5,18 +5,19 @@ import time
 from collections import Iterable
 
 
-def error_management(func):
-    def func_wrapper(*args, **kwargs):
-        try:
-            logging.info("Call %r", func.__name__)
-            return func(*args, **kwargs)
-        except:
-            logging.error("Invalid value received")
-
-    return func_wrapper
 
 
 class CommonUtils(object):
+
+    def error_management(func):
+        def func_wrapper(*args, **kwargs):
+            try:
+                logging.info("Call %r", func.__name__)
+                return func(*args, **kwargs)
+            except:
+                logging.error("Invalid value received")
+
+        return func_wrapper
 
     @staticmethod
     def hex_to_int(s):

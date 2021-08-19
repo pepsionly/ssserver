@@ -5,6 +5,7 @@ from utils.__init__ import CommonUtils
 from utils.log import Log
 from application.redisclient.model.models import *
 from application.redisclient import RedisConn
+
 logger = Log(__name__).getlog()
 from utils.hexconverter import HexConverter
 
@@ -44,7 +45,6 @@ class HongFa(GatewayClient):
 
         else:
             print(msg_obj)
-
 
     def handle_topic_will(self, client, userdata, msg):
         # 数据
@@ -110,11 +110,11 @@ class HongFa(GatewayClient):
             # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
             device_type = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
             self.redis_conn.set_one(SwitchStatus({'brand': self.brand,
-                                                'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
-                                                'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
-                                                'SID': switch_id,
-                                                'GID': gateway_id,
-                                                'OL': True,
+                                                  'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
+                                                  'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
+                                                  'SID': switch_id,
+                                                  'GID': gateway_id,
+                                                  'OL': True,
                                                   }))
 
         # 解析 Modbus TCP 原始值
@@ -129,11 +129,11 @@ class HongFa(GatewayClient):
             # return None
             pass
         return self.redis_conn.left_push(SwitchData({'brand': self.brand,
-                                                   'gateway_id': gateway_id,
-                                                   'switch_id': switch_id,
-                                                   'date': time_stamp,
-                                                   'code': 1,
-                                                   'data': result,
+                                                     'gateway_id': gateway_id,
+                                                     'switch_id': switch_id,
+                                                     'date': time_stamp,
+                                                     'code': 1,
+                                                     'data': result,
                                                      }))
 
     def validate_crc_code(parse_func):
@@ -149,6 +149,7 @@ class HongFa(GatewayClient):
             else:
                 # 在这里处理crc校验失败的业务, 通过kwargs在'parse_tcp_data'等函数传入传入相关参数
                 logger.warning('CRC Validation Failed:' + json.dumps(kwargs))
+
         return validate
 
     @staticmethod
@@ -195,6 +196,42 @@ class HongFa(GatewayClient):
         else:
             result = None
         return result
+
+    def gen_set_gw_data(self, gateway_id, address, hex_data):
+        """
+        @param gateway_id:
+        @param address:
+        @param hex_data:
+        @return:
+        """
+
+        """
+         register_count=len(hex_data)/4     byte_count=len(hex_data)/2  hex_data
+        
+        """
+        # hex_data
+        bytes_count_data = HexConverter.ushort_to_hex(int(len(hex_data)/2))[2:]
+        register_count = HexConverter.ushort_to_hex(int(len(hex_data)/4))
+        # address
+        function_code = '10'
+        gateway_address = 'FF'
+        hex_data_with_gateway_address = gateway_address + function_code + address + register_count \
+                                         + bytes_count_data + hex_data
+
+        bytes_count_with_gateway_address = HexConverter.ushort_to_hex(int(len(hex_data_with_gateway_address)/2)).upper()
+
+        hex_data_without_crc = address + bytes_count_with_gateway_address + hex_data_with_gateway_address
+
+        crc = CommonUtils.cal_modbus_crc16(hex_data_without_crc)[2:].upper()
+
+        modbus_data = crc + hex_data_without_crc
+
+        topic = 'hongfa/%s/download/' % str(gateway_id)
+
+        payload = {"GSN": gateway_id, "GW_Request": modbus_data}
+        payload_str = json.dumps(payload).replace(' ', '')
+
+        return topic, payload_str, ''
 
     @staticmethod
     def get_switch_device_type(code):

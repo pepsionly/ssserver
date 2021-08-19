@@ -87,7 +87,7 @@ class HexConverter:
         :param s: 4998
         :return: '1386'
         """
-        return struct.pack('!H', s).hex()
+        return struct.pack('!H', int(s)).hex()
 
     @staticmethod
     def hex_to_uint(s):

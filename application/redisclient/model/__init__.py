@@ -16,7 +16,6 @@ class RedisModel(abc.ABC):
 
     def __init__(self, obj):
         """
-        @param redis_conn: redis 数据库
         @param obj:
         """
         self.obj = obj

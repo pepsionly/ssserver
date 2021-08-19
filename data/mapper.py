@@ -2,13 +2,12 @@ import os
 import re
 import sqlite3
 import struct
-
 import pandas as pd
 from config.dev import DevelopmentConfig
 from utils import CommonUtils
 from utils.hexconverter import HexConverter
 from config.const import Const
-
+from utils.exceptions import *
 const = Const()
 
 
@@ -137,9 +136,8 @@ class Mapper(object):
         for param_id, param_value in param_dict.items():
             address_map = self.get_by_id(brand, device_type, param_id, write)
             if not address_map:
-                # 处理未找到映射记录的param_id
-                return {'code': const.INVALID_PARAM_ID,
-                        'data': 'not address_map found with param id:[%s]' % str(param_id)}
+                # 抛出未找到映射记录的param_id的异常,待处理
+                raise InvalidParamID
             else:
                 convert_fun = eval('HexConverter.%s_to_hex' % address_map.get('datatype'))
                 # 处理小数点: Y/100
@@ -151,12 +149,12 @@ class Mapper(object):
                 try:
                     param_hex = convert_fun(param_value).upper()
                 except struct.error:
-                    return {'code': const.INVALID_PARAM_VALUE,
-                            'data': 'invalid param value: {id: %s, value: %s}' % (str(param_id), str(param_value))}
+                    #  抛出参数格式不正确的异常,待处理
+                    raise InvalidParamValue
 
                 result_data.append({'address': address_map['address'],
                                     'param_hex': param_hex})
-        return {'code': const.SUCCESS, 'data': self.zip_address_hex_data(result_data)}
+        return self.zip_address_hex_data(result_data)
 
     def zip_address_hex_data(self, data):
         """
@@ -166,7 +164,6 @@ class Mapper(object):
         """
         # 排序数据
         data_sorted = sorted(data, key=lambda x: x['address'])
-        print(data_sorted)
         # 取出所有地址并转化成整数/和16进制数据
         address_int_sorted = [HexConverter.hex_to_ushort(i['address'][2:]) for i in data_sorted]
         data_hex_sorted = [i['param_hex'] for i in data_sorted]
@@ -185,6 +182,7 @@ class Mapper(object):
                     'data': ''.join(data_hex_sorted[current_index: last_index])
                 })
                 last_index = current_index
+        print(result_data)
         return result_data
 
     @staticmethod
