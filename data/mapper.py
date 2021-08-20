@@ -182,7 +182,6 @@ class Mapper(object):
                     'data': ''.join(data_hex_sorted[current_index: last_index])
                 })
                 last_index = current_index
-        print(result_data)
         return result_data
 
     @staticmethod

@@ -84,6 +84,7 @@ class HongFa(GatewayClient):
         self.redis_conn.set_one(GatewayStatus(data_gw))
 
     def handle_auto_report(self, topic, msg_obj):
+        print(msg_obj)
         """
         :param topic: hongfa/FF3D210725113600/upload/
         :param msg_obj: {"SSN":"4C36210605133128","DataUp04":"76B80000002F01042C00000000000000000003000100010001003F000000000000003C3797FFDB9045000000000000435DC9280025","TM":"220105165657"}
@@ -197,41 +198,141 @@ class HongFa(GatewayClient):
             result = None
         return result
 
-    def gen_set_gw_data(self, gateway_id, address, hex_data):
+    def gen_gw_request(gen_func):
         """
-        @param gateway_id:
-        @param address:
-        @param hex_data:
+        组装gw_request json字符串的函数装饰器
+        @param gen_func: 组装modbus原始值的函数
         @return:
+            topic: 'hongfa/{gateway_id}/download/'
+            payload: "{"GSN":"FFD1212006105728","GW_Request":"F1F302410015FF10024100070e000B000B000B000B03DE03E70064"}"
+        """
+        def gen_request(gateway_id, address, hex_data):
+            adu = gen_func(gateway_id, address, hex_data)
+            topic = 'hongfa/%s/download/' % str(gateway_id)
+            payload = {"GSN": gateway_id, "GW_Request": adu}
+            payload_str = json.dumps(payload).replace(' ', '')
+            return topic, payload_str
+        return gen_request
+
+    @staticmethod
+    @gen_gw_request
+    def gen_gw_04h(gateway_id, address, register_count):
+        """
+        生成读取宏发网关一个或多个输入寄存器的modbus原始值
+        @param gateway_id: 网关GSN，供装饰器函数调用
+        @param address: 起始寄存器地址
+        @param register_count: 读取的寄存器数量
+        @return: 见调用 gen_04h(address, register_count)
+        """
+        return HongFa.gen_read(address, register_count)
+
+    @staticmethod
+    @gen_gw_request
+    def gen_gw_03h(gateway_id, address, register_count):
+        """
+        生成读取宏发网关一个或多个输入寄存器的modbus原始值
+        @param gateway_id: 网关GSN，供装饰器函数调用
+        @param address: 起始寄存器地址
+        @param register_count: 读取的寄存器数量
+        @return: 见调用 gen_04h(address, register_count)
+        """
+        return HongFa.gen_read(address, register_count, function_code='03')
+
+
+    @staticmethod
+    def gen_read(address, register_count, identifier=1, function_code='04'):
+        """
+        生成读取宏发网关/断路器一个或多个寄存器的modbus原始值
+        @param address: 起始寄存器地址
+        @param register_count: 读取的寄存器数量
+        @param identifier: 设备的单位标识符
+        @param function_code: 功能码默认'04'读输入寄存器, 传入03可读保持寄存器
+        @return: adu 完整的 modbus 原始值
+            MBAP = CRC检验码 + 起始寄存器地址 + 以下数据的字节数 + 单元标识符
+            MBAP = F1F3     + 0241        + 0015          + FF
+            adu = MBAP + 功能码 + 起始寄存器地址 + 寄存器数量
+            adu = MBAP + 04    + 0241        + 0007
+        """
+        identifier_hex = HexConverter.ushort_to_hex(identifier)[2:].upper()
+        register_count_hex = HexConverter.ushort_to_hex(register_count).upper()
+        pdu = function_code + address + register_count_hex
+        adu_without_crc = address + '0006' + identifier_hex + pdu
+        crc = CommonUtils.cal_modbus_crc16(adu_without_crc)[2:].upper()
+        return crc + adu_without_crc
+
+    @staticmethod
+    @gen_gw_request
+    def gen_gw_06h(gateway_id, address, hex_data):
+        """
+        生成设定宏发网关一个参数的modbus原始值
+        @param gateway_id: 网关id，供函数装饰器调用
+        @param address: 起始寄存器地址
+        @param hex_data: 数据
+        @return: 见调用：gen_06h(address, hex_data)
+        """
+        return HongFa.gen_06h(address, hex_data)
+
+    @staticmethod
+    def gen_06h(address, hex_data, identifier=255):
+        """
+        生成设定宏发网关/断路器一个参数的modbus原始值
+        @param address: 起始寄存器地址
+        @param hex_data: 数据
+        @param identifier: 设备的单位标识符
+        @return: adu 完整的 modbus 原始值
+            MBAP = CRC检验码 + 起始寄存器地址 + 以下数据的字节数 + 单元标识符
+            MBAP = F1F3     + 0241        + 0006          + FF
+            adu = MBAP + 功能码 + 起始寄存器地址 + 数据
+            adu = MBAP + 06    + 0241        + 000B
         """
 
+        identifier_hex = HexConverter.ushort_to_hex(identifier)[2:].upper()
+        pdu = '06' + address + hex_data
+        adu_without_crc = address + '0006' + identifier_hex + pdu
+        crc = CommonUtils.cal_modbus_crc16(adu_without_crc)[2:].upper()
+        return crc + adu_without_crc
+
+    @staticmethod
+    @gen_gw_request
+    def gen_gw_10h(gateway_id, address, hex_data):
         """
-         register_count=len(hex_data)/4     byte_count=len(hex_data)/2  hex_data
-        
+        生成设定宏发网关多个参数的modbus原始值
+        @param gateway_id: 网关GSN,
+        @param address: 起始寄存器地址
+        @param hex_data: 数据
+        @return: 见调用：gen_10h(address, hex_data)
         """
-        # hex_data
-        bytes_count_data = HexConverter.ushort_to_hex(int(len(hex_data)/2))[2:]
-        register_count = HexConverter.ushort_to_hex(int(len(hex_data)/4))
-        # address
+        return HongFa.gen_10h(address, hex_data)
+
+    @staticmethod
+    def gen_10h(address, hex_data, identifier=255):
+        """
+        生成设定宏发网关/断路器多个参数的modbus原始值
+        @param address: 起始寄存器地址
+        @param hex_data: 数据
+        @param identifier: 设备的单元标识符
+        @return: adu 完整的 modbus 原始值
+            MBAP = CRC检验码 + 起始寄存器地址 + 以下数据的字节数 + 单元标识符
+            MBAP = F1F3     + 0241        + 0015          + FF
+            adu = MBAP + 功能码 + 起始寄存器地址 + 寄存器数量 + 数据字节数 + 数据
+            adu = MBAP + 10    + 0241        + 0007     + 0E       + 000B000B000B000B03DE03E70064
+        """
+        identifier_hex = HexConverter.ushort_to_hex(identifier)[2:].upper()
+        bytes_count_data = HexConverter.ushort_to_hex(int(len(hex_data) / 2))[2:].upper()
+        register_count = HexConverter.ushort_to_hex(int(len(hex_data) / 4)).upper()
         function_code = '10'
-        gateway_address = 'FF'
-        hex_data_with_gateway_address = gateway_address + function_code + address + register_count \
-                                         + bytes_count_data + hex_data
+        hex_data_with_gateway_address = identifier_hex + function_code + address + register_count \
+                                        + bytes_count_data + hex_data
 
-        bytes_count_with_gateway_address = HexConverter.ushort_to_hex(int(len(hex_data_with_gateway_address)/2)).upper()
+        bytes_count_with_gateway_address = HexConverter.ushort_to_hex(
+            int(len(hex_data_with_gateway_address) / 2)).upper()
 
-        hex_data_without_crc = address + bytes_count_with_gateway_address + hex_data_with_gateway_address
+        adu_without_crc = address + bytes_count_with_gateway_address + hex_data_with_gateway_address
 
-        crc = CommonUtils.cal_modbus_crc16(hex_data_without_crc)[2:].upper()
+        crc = CommonUtils.cal_modbus_crc16(adu_without_crc)[2:].upper()
 
-        modbus_data = crc + hex_data_without_crc
-
-        topic = 'hongfa/%s/download/' % str(gateway_id)
-
-        payload = {"GSN": gateway_id, "GW_Request": modbus_data}
-        payload_str = json.dumps(payload).replace(' ', '')
-
-        return topic, payload_str, ''
+        #  返回完整的modbus原始值
+        return crc + adu_without_crc
 
     @staticmethod
     def get_switch_device_type(code):

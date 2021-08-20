@@ -22,21 +22,69 @@ mapper = app.mapper
 redis_conn = app.redis_conn
 """
 
-
-@hongfa.route('/gw/set', methods=['POST'])
-def set_gw_params():
+@hongfa.route('/gw/04H', methods=['POST'])
+def read_gw_params():
     """
-    同时设定网关的多个参数
+    设定网关的一个参数
     @return:
     """
-
     device_brand = request.path.split('/')[1]
     post_data = json.loads(request.get_data())
     device_type = post_data.get('device_type')
     gid = post_data.get('gid')
     params = post_data.get('params')
 
-    print(params)
+    """try:
+        address_data_maps = app.mapper.map_data_address(params, device_brand, device_type)
+    except sqlite3.OperationalError:
+        raise DeviceTypeNotFound()
+
+    for address_data_map in address_data_maps:
+        topic, payload = app.hongfa.gen_gw_4h(gid, address_data_map['address'], address_data_map['data'])
+        app.mqtt_client.publish(topic, payload, qos=1)"""
+    topic, payload = app.hongfa.gen_gw_03h(gid, '0004', 3)
+    app.mqtt_client.publish(topic, payload, qos=1)
+    topic, payload = app.hongfa.gen_gw_04h(gid, '0004', 3)
+
+    print(topic)
+    print(payload)
+    app.mqtt_client.publish(topic, payload, qos=1)
+    return 'success'
+
+
+@hongfa.route('/gw/06H', methods=['POST'])
+def set_gw_param():
+    """
+    设定网关的一个参数
+    @return:
+    """
+    device_brand = request.path.split('/')[1]
+    post_data = json.loads(request.get_data())
+    device_type = post_data.get('device_type')
+    gid = post_data.get('gid')
+    params = post_data.get('params')
+
+    try:
+        address_data_maps = app.mapper.map_data_address(params, device_brand, device_type)
+    except sqlite3.OperationalError:
+        raise DeviceTypeNotFound()
+
+    for address_data_map in address_data_maps:
+        topic, payload = app.hongfa.gen_gw_06h(gid, address_data_map['address'], address_data_map['data'])
+        app.mqtt_client.publish(topic, payload, qos=1)
+    return 'success'
+
+@hongfa.route('/gw/10H', methods=['POST'])
+def set_gw_params():
+    """
+    同时设定网关的多个参数
+    @return:
+    """
+    device_brand = request.path.split('/')[1]
+    post_data = json.loads(request.get_data())
+    device_type = post_data.get('device_type')
+    gid = post_data.get('gid')
+    params = post_data.get('params')
 
     try:
         address_data_maps = app.mapper.map_data_address(params, device_brand, device_type)
@@ -45,57 +93,10 @@ def set_gw_params():
 
 
     for address_data_map in address_data_maps:
-        topic, payload, request_hash = app.hongfa.gen_set_gw_data(gid, address_data_map['address'], address_data_map['data'])
-
-        print(topic, payload, request_hash)
+        topic, payload = app.hongfa.gen_gw_10h(gid, address_data_map['address'], address_data_map['data'])
         app.mqtt_client.publish(topic, payload, qos=1)
 
-
-
-    """
-        sqlite3.OperationalError
-    """
-    return ''
-
-
-@hongfa.route('/gw/set_one', methods=['POST'])
-def gw_set_one_demo():
-    data = request.get_data()
-    data_obj = json.loads(data)
-
-    brand = data_obj.get('brand')
-    gid = data_obj.get('gid')
-    param_id = data_obj.get('param_id')
-    param_value = int(data_obj.get('interval') / 10)
-    device_type = 'GW23'
-    address_map = app.mapper.get_by_id(brand, device_type, param_id)
-
-    address = address_map.get('address')[2:]  # 寄存器地址
-    unit_address = 'FF'  # 网关通讯地址·
-    function_code = '06'  # 功能码
-
-    convert_fun = eval('HexConverter.%s_to_hex' % address_map.get('datatype'))
-    data_hex = convert_fun(param_value).upper()
-
-    # data_hex = HexConverter.ushort_to_hex(param_value).upper()
-
-    len1 = int(4 + address_map['len'] * 2)  # 数据长度（加function_code和len2）
-    hex_len = HexConverter.ushort_to_hex(len1)
-
-    modbus_data_without_crc = address + hex_len + unit_address + function_code + address + data_hex
-    print(modbus_data_without_crc)
-
-    crc = CommonUtils.cal_modbus_crc16(modbus_data_without_crc)[2:].upper()
-    modbus_data = crc + modbus_data_without_crc
-
-    topic = 'hongfa/FFD1212006105728/download/'
-    json_obj = {"GSN": gid, "GW_Request": modbus_data}
-    json_str = json.dumps(json_obj).replace(' ', '')
-
-    app.mqtt_client.publish(topic, json_str, 0)
-
-    return 'set data %s to %s' % (param_id, str(int(param_value / 10)))
-    return 'this is the gateway server!'
+    return 'success'
 
 
 @hongfa.route('/<string:gid>/<string:pram_id>/<int:pram_value>')
