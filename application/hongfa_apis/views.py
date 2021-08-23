@@ -1,6 +1,7 @@
 import json
 import re
 import sqlite3
+import time
 from json import JSONDecodeError
 
 from flask import Blueprint, request
@@ -22,10 +23,10 @@ mapper = app.mapper
 redis_conn = app.redis_conn
 """
 
-@hongfa.route('/gw/04H', methods=['POST'])
+@hongfa.route('/gw/read', methods=['POST'])
 def read_gw_params():
     """
-    设定网关的一个参数
+    读取网关的一个或多个参数
     @return:
     """
     device_brand = request.path.split('/')[1]
@@ -34,28 +35,23 @@ def read_gw_params():
     gid = post_data.get('gid')
     params = post_data.get('params')
 
-    """try:
-        address_data_maps = app.mapper.map_data_address(params, device_brand, device_type)
+    try:
+        id_len_maps = app.mapper.map_ids_len(params, device_brand, device_type)
     except sqlite3.OperationalError:
         raise DeviceTypeNotFound()
 
-    for address_data_map in address_data_maps:
-        topic, payload = app.hongfa.gen_gw_4h(gid, address_data_map['address'], address_data_map['data'])
-        app.mqtt_client.publish(topic, payload, qos=1)"""
-    topic, payload = app.hongfa.gen_gw_03h(gid, '0004', 3)
-    app.mqtt_client.publish(topic, payload, qos=1)
-    topic, payload = app.hongfa.gen_gw_04h(gid, '0004', 3)
+    for id_len_map in id_len_maps:
+        gen_func = eval('app.hongfa.gen_gw_%sh' % id_len_map['fc'])
+        topic, payload = gen_func(gid, id_len_map['address'], id_len_map['len'])
+        app.mqtt_client.publish(topic, payload, qos=1)
 
-    print(topic)
-    print(payload)
-    app.mqtt_client.publish(topic, payload, qos=1)
     return 'success'
 
 
-@hongfa.route('/gw/06H', methods=['POST'])
+@hongfa.route('/gw/set', methods=['POST'])
 def set_gw_param():
     """
-    设定网关的一个参数
+    设定网关的一个或多个参数
     @return:
     """
     device_brand = request.path.split('/')[1]
@@ -70,32 +66,27 @@ def set_gw_param():
         raise DeviceTypeNotFound()
 
     for address_data_map in address_data_maps:
-        topic, payload = app.hongfa.gen_gw_06h(gid, address_data_map['address'], address_data_map['data'])
+        gen_func = eval('app.hongfa.gen_gw_%sh' % address_data_map['fc'])
+        topic, payload = gen_func(gid, address_data_map['address'], address_data_map['data'])
         app.mqtt_client.publish(topic, payload, qos=1)
     return 'success'
 
-@hongfa.route('/gw/10H', methods=['POST'])
-def set_gw_params():
+@hongfa.route('/test')
+def test_func():
     """
-    同时设定网关的多个参数
+    测试
     @return:
     """
-    device_brand = request.path.split('/')[1]
-    post_data = json.loads(request.get_data())
-    device_type = post_data.get('device_type')
-    gid = post_data.get('gid')
-    params = post_data.get('params')
+    gid = 'FFD1212006105728'
+    sid = '6B02210710091756'
+    identifier = 2
+    address = '0010'
+    register_count = 50
 
-    try:
-        address_data_maps = app.mapper.map_data_address(params, device_brand, device_type)
-    except sqlite3.OperationalError:
-        raise DeviceTypeNotFound()
-
-
-    for address_data_map in address_data_maps:
-        topic, payload = app.hongfa.gen_gw_10h(gid, address_data_map['address'], address_data_map['data'])
-        app.mqtt_client.publish(topic, payload, qos=1)
-
+    gen_func = eval('app.hongfa.gen_switch_%sh' % '04')
+    topic, payload = gen_func(gid, sid, identifier, address, register_count)
+    app.mqtt_client.publish(topic, payload, qos=1)
+    app.mqtt_client.publish(topic, '{“ReportAll”:“*”}', qos=1)
     return 'success'
 
 
@@ -132,7 +123,7 @@ def demo_set_report_interval(gid, pram_id, pram_value):
 
 
 """
-以下注册统一的异常处理方法
+以下注册异常处理方法
 """
 
 

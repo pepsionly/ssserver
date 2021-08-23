@@ -19,7 +19,11 @@ class HexConverter:
         :param s: 啥
         :return: 啥
         """
-        return s
+        # 补位
+        s = str(s)
+        while len(s) < 4:
+            s = '0' + s
+        return s.upper()
 
     @staticmethod
     def hex_to_float(s):
@@ -39,7 +43,7 @@ class HexConverter:
         # 输出：32333430
         # print(struct.pack('>f', f).hex())  # 大端
         # 输出：30343332
-        return struct.pack('!f', f).hex()
+        return struct.pack('!f', f).hex().upper()
 
     @staticmethod
     def hex_to_short(s):
@@ -55,7 +59,7 @@ class HexConverter:
         :param s: 28
         :return: '001C'
         """
-        return struct.pack('!h', s).hex()
+        return struct.pack('!h', s).hex().upper()
 
     @staticmethod
     def hex_to_int(s):
@@ -71,7 +75,7 @@ class HexConverter:
         :param i: -257978445
         :return: 'f09f8fb3'
         """
-        return struct.pack('!i', i).hex()
+        return struct.pack('!i', i).hex().upper()
 
     @staticmethod
     def hex_to_ushort(s):
@@ -87,7 +91,7 @@ class HexConverter:
         :param s: 4998
         :return: '1386'
         """
-        return struct.pack('!H', int(s)).hex()
+        return struct.pack('!H', int(s)).hex().upper()
 
     @staticmethod
     def hex_to_uint(s):
@@ -103,7 +107,7 @@ class HexConverter:
         :param i: 4036988851
         :return: 'f09f8fb3'
         """
-        return struct.pack('!I', i).hex()
+        return struct.pack('!I', i).hex().upper()
 
     @staticmethod
     def hex_to_ustr(s):
@@ -128,7 +132,7 @@ class HexConverter:
         hex_str = ''
         for i in range(len(s)):
             hex_str += struct.pack('B', ord(s[i])).hex()
-        return hex_str
+        return hex_str.upper()
 
     @staticmethod
     def twosComplement_hex(hexval, bits=16):
@@ -141,5 +145,5 @@ class HexConverter:
         val = int(hexval, 16)
         if val & (1 << (bits - 1)):
             val -= 1 << bits
-        return val
+        return val.upper()
 

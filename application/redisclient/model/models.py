@@ -35,9 +35,10 @@ class SwitchStatus(RedisModel):
     @property
     def key(self):
         return 'switch_status:%s:%s:%s' % (self.obj['brand'],
-                                             self.obj['GID'],
-                                             self.obj['SID']
+                                           self.obj['GID'],
+                                           self.obj['SID']
                                            )
+
 
 class GatewayStatus(RedisModel):
     """
@@ -57,13 +58,27 @@ class GatewayStatus(RedisModel):
     def key(self):
         return 'gateway_status:%s:%s' % (self.obj['brand'], self.obj['GID'])
 
+
 class SwitchData(RedisModel):
     """
+    """
+    dtu_sn = RedisColumn(no_null=True)
+    date = RedisColumn(no_null=True)
+    code = RedisColumn(no_null=True)
+    item = RedisColumn(no_null=True)
+
+    @property
+    def key(self):
+        return 'switch_data:%s:%s' % (self.obj['dtu_sn'], self.obj['item'][0]['cmp_sn1'])
+
+
+class SwitchTempData(RedisModel):
+    """
         {   brand： hongfa/timu
-            gateway_id:"FFD1212006105728"
-            switch_id:"6B02210710091756"
+            gateway_sn:"FFD1212006105728"
+            switch_sn:"6B02210710091756"
+            siblings: 4
             date:1629191317
-            code:1
             data :{
                 18004:0
                 18005:0
@@ -72,12 +87,17 @@ class SwitchData(RedisModel):
         }
     """
     brand = RedisColumn(no_null=True)
-    gateway_id = RedisColumn(no_null=True)
-    switch_id = RedisColumn(no_null=True)
+    gateway_sn = RedisColumn(no_null=True)
+    switch_sn = RedisColumn(no_null=True)
+    siblings = RedisColumn(no_null=True)
+    start_address = RedisColumn(no_null=True)
     date = RedisColumn(no_null=True)
-    code = RedisColumn(no_null=True)
     data = RedisColumn(no_null=True)
 
     @property
     def key(self):
-        return 'switch_data:%s:%s:%s' % (self.obj['brand'], self.obj['gateway_id'], self.obj['switch_id'])
+        # 根据起始寄存器地址判断是不是需要的自动上传数据
+        if self.obj['start_address'] not in ['0000', '0016', '002C', '0080']:
+            return None
+        return 'temp:%s:%s:%s:%s' % (
+            self.obj['brand'], self.obj['gateway_sn'], self.obj['switch_sn'], self.obj['start_address'])

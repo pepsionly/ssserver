@@ -80,11 +80,12 @@ class HongFa(GatewayClient):
         data_s['OL'] = data_gw['OL'] = True
         data_s['brand'] = data_gw['brand'] = self.brand
         data_s['GID'] = gateway_id
+        device_type, auto_data_count = self.get_switch_device_type(data_s['SDT'])
+        data_s['ADC'] = auto_data_count
         self.redis_conn.set_one(SwitchStatus(data_s))
         self.redis_conn.set_one(GatewayStatus(data_gw))
 
     def handle_auto_report(self, topic, msg_obj):
-        print(msg_obj)
         """
         :param topic: hongfa/FF3D210725113600/upload/
         :param msg_obj: {"SSN":"4C36210605133128","DataUp04":"76B80000002F01042C00000000000000000003000100010001003F000000000000003C3797FFDB9045000000000000435DC9280025","TM":"220105165657"}
@@ -106,16 +107,17 @@ class HongFa(GatewayClient):
             'SID': switch_id
         }))
         if switch_status:
-            device_type = self.get_switch_device_type(switch_status['SDT'])
+            device_type, auto_data_count = self.get_switch_device_type(switch_status['SDT'])
         elif modbus_data[4:8] == '0000':
             # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
-            device_type = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
+            device_type, auto_data_count = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
             self.redis_conn.set_one(SwitchStatus({'brand': self.brand,
                                                   'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
                                                   'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
                                                   'SID': switch_id,
                                                   'GID': gateway_id,
                                                   'OL': True,
+                                                  'ADC': auto_data_count
                                                   }))
 
         # 解析 Modbus TCP 原始值
@@ -129,13 +131,45 @@ class HongFa(GatewayClient):
             # 处理CRC验证出错
             # return None
             pass
-        return self.redis_conn.left_push(SwitchData({'brand': self.brand,
-                                                     'gateway_id': gateway_id,
-                                                     'switch_id': switch_id,
-                                                     'date': time_stamp,
-                                                     'code': 1,
-                                                     'data': result,
-                                                     }))
+        # 暂存待处理：
+        self.redis_conn.set_one(SwitchTempData({'brand': self.brand,
+                                                'gateway_sn': gateway_id,
+                                                'switch_sn': switch_id,
+                                                'siblings': auto_data_count,
+                                                'start_address': modbus_data[4:8],
+                                                'date': time_stamp,
+                                                'data': result,
+                                                }))
+        self.try_merge_data(self.brand, gateway_id, switch_id)
+
+    def try_merge_data(self, brand, gateway_id, switch_id):
+        # 取出暂存的值
+        key = 'temp:%s:%s:%s' % (brand, gateway_id, switch_id)
+        temp_datas = self.redis_conn.get_all(key)
+        temp_datas = [json.loads(item) for item in temp_datas]
+        # 判断是否合并
+        if len(temp_datas) < temp_datas[0]['siblings']:
+            return
+        times = [int(item['date']) for item in temp_datas]
+        time_diff = max(times) - min(times)
+        if time_diff >= 10:
+            return
+        merged_data = {}
+        for item in temp_datas:
+            merged_data.update(item['data'])
+        merged_data = dict((key, value) for key, value in merged_data.items() if 'id' not in key)
+
+        data_report = SwitchData({
+            'dtu_sn': temp_datas[0]['gateway_sn'],
+            'date': temp_datas[0]['date'],
+            'code': 1,
+            'item': [{
+                'cmp_sn1': temp_datas[0]['switch_sn'],
+                'data': merged_data
+            }],
+        })
+
+        self.redis_conn.left_push(data_report)
 
     def validate_crc_code(parse_func):
         """
@@ -198,6 +232,43 @@ class HongFa(GatewayClient):
             result = None
         return result
 
+    def gen_switch_request(gen_func):
+        """
+        组装MRaw_Request json字符串的函数装饰器
+        @param gen_func: 组装modbus原始值的函数
+        @return:
+            topic: 'hongfa/{gateway_id}/download/'
+            payload: "{"GSN":"FFD1212006105728","GW_Request":"F1F302410015FF10024100070e000B000B000B000B03DE03E70064"}"
+        """
+
+        def gen_request(gid, sid, identifier, address, data):
+            adu = gen_func(gid, sid, identifier, address, data)
+            topic = 'hongfa/%s/download/' % str(gid)
+            payload = {"SSN": sid, "MRaw_Request": adu}
+            payload_str = json.dumps(payload).replace(' ', '')
+            return topic, payload_str
+        return gen_request
+
+    @staticmethod
+    @gen_switch_request
+    def gen_switch_03h(gid, sid, identifier, address, register_count):
+        return HongFa.gen_read(address, register_count, identifier=identifier, function_code='03')
+
+    @staticmethod
+    @gen_switch_request
+    def gen_switch_04h(gid, sid, identifier, address, register_count):
+        return HongFa.gen_read(address, register_count, identifier)
+
+    @staticmethod
+    @gen_switch_request
+    def gen_switch_06h(gid, sid, identifier, address, hex_data):
+        return HongFa.gen_06h(address, hex_data, identifier)
+
+    @staticmethod
+    @gen_switch_request
+    def gen_switch_10h(gid, sid, identifier, address, hex_data):
+        return HongFa.gen_10h(address, hex_data, identifier)
+
     def gen_gw_request(gen_func):
         """
         组装gw_request json字符串的函数装饰器
@@ -206,13 +277,27 @@ class HongFa(GatewayClient):
             topic: 'hongfa/{gateway_id}/download/'
             payload: "{"GSN":"FFD1212006105728","GW_Request":"F1F302410015FF10024100070e000B000B000B000B03DE03E70064"}"
         """
+
         def gen_request(gateway_id, address, hex_data):
             adu = gen_func(gateway_id, address, hex_data)
             topic = 'hongfa/%s/download/' % str(gateway_id)
             payload = {"GSN": gateway_id, "GW_Request": adu}
             payload_str = json.dumps(payload).replace(' ', '')
             return topic, payload_str
+
         return gen_request
+
+    @staticmethod
+    @gen_gw_request
+    def gen_gw_03h(gateway_id, address, register_count):
+        """
+        生成读取宏发网关一个或多个输入寄存器的modbus原始值
+        @param gateway_id: 网关GSN，供装饰器函数调用
+        @param address: 起始寄存器地址
+        @param register_count: 读取的寄存器数量
+        @return: 见调用 gen_04h(address, register_count)
+        """
+        return HongFa.gen_read(address, register_count, function_code='03')
 
     @staticmethod
     @gen_gw_request
@@ -228,19 +313,30 @@ class HongFa(GatewayClient):
 
     @staticmethod
     @gen_gw_request
-    def gen_gw_03h(gateway_id, address, register_count):
+    def gen_gw_06h(gateway_id, address, hex_data):
         """
-        生成读取宏发网关一个或多个输入寄存器的modbus原始值
-        @param gateway_id: 网关GSN，供装饰器函数调用
+        生成设定宏发网关一个参数的modbus原始值
+        @param gateway_id: 网关id，供函数装饰器调用
         @param address: 起始寄存器地址
-        @param register_count: 读取的寄存器数量
-        @return: 见调用 gen_04h(address, register_count)
+        @param hex_data: 数据
+        @return: 见调用：gen_06h(address, hex_data)
         """
-        return HongFa.gen_read(address, register_count, function_code='03')
-
+        return HongFa.gen_06h(address, hex_data)
 
     @staticmethod
-    def gen_read(address, register_count, identifier=1, function_code='04'):
+    @gen_gw_request
+    def gen_gw_10h(gateway_id, address, hex_data):
+        """
+        生成设定宏发网关多个参数的modbus原始值
+        @param gateway_id: 网关GSN,
+        @param address: 起始寄存器地址
+        @param hex_data: 数据
+        @return: 见调用：gen_10h(address, hex_data)
+        """
+        return HongFa.gen_10h(address, hex_data)
+
+    @staticmethod
+    def gen_read(address, register_count, identifier=255, function_code='04'):
         """
         生成读取宏发网关/断路器一个或多个寄存器的modbus原始值
         @param address: 起始寄存器地址
@@ -261,18 +357,6 @@ class HongFa(GatewayClient):
         return crc + adu_without_crc
 
     @staticmethod
-    @gen_gw_request
-    def gen_gw_06h(gateway_id, address, hex_data):
-        """
-        生成设定宏发网关一个参数的modbus原始值
-        @param gateway_id: 网关id，供函数装饰器调用
-        @param address: 起始寄存器地址
-        @param hex_data: 数据
-        @return: 见调用：gen_06h(address, hex_data)
-        """
-        return HongFa.gen_06h(address, hex_data)
-
-    @staticmethod
     def gen_06h(address, hex_data, identifier=255):
         """
         生成设定宏发网关/断路器一个参数的modbus原始值
@@ -291,18 +375,6 @@ class HongFa(GatewayClient):
         adu_without_crc = address + '0006' + identifier_hex + pdu
         crc = CommonUtils.cal_modbus_crc16(adu_without_crc)[2:].upper()
         return crc + adu_without_crc
-
-    @staticmethod
-    @gen_gw_request
-    def gen_gw_10h(gateway_id, address, hex_data):
-        """
-        生成设定宏发网关多个参数的modbus原始值
-        @param gateway_id: 网关GSN,
-        @param address: 起始寄存器地址
-        @param hex_data: 数据
-        @return: 见调用：gen_10h(address, hex_data)
-        """
-        return HongFa.gen_10h(address, hex_data)
 
     @staticmethod
     def gen_10h(address, hex_data, identifier=255):
@@ -338,12 +410,14 @@ class HongFa(GatewayClient):
     def get_switch_device_type(code):
         """
         :param code: 5
-        :return: 断路器的设备类型
+        :return: (断路器的设备类型, 断路器自动上传的数据条数)
         """
-        mapper = {1: '1P', 2: '1PN', 3: '1PNL',
-                  4: '3P', 5: '3PN', 6: '3PNL',
-                  12: '2P', 16: '4P'}
+        mapper = {1: ('1P', 0), 2: ('1PN', 0), 3: ('1PNL', 3),
+                  4: ('3P', 0), 5: ('3PN', 4), 6: ('3PNL', 0),
+                  12: ('2P', 0), 16: ('4P', 0)}
         return mapper.get(code)
+
+
 
     @staticmethod
     def get_gateway_device_type(device_code):

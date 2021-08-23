@@ -8,6 +8,7 @@ from utils import CommonUtils
 from utils.hexconverter import HexConverter
 from config.const import Const
 from utils.exceptions import *
+
 const = Const()
 
 
@@ -56,13 +57,13 @@ class Mapper(object):
         @param write: 是否要求参数可写
         :return: row, cursor交由装饰器函数提取表头并打包成字典
         """
-        if not write:
-            # 按地址查询,device_type有些事数字开头不能做表头，所以统一在前面在'A', 比如'A3PN=1'表示3PN设备支持对应行的变量
-            sql = "SELECT * FROM %s_%s_map WHERE id = '%s' AND A%s=1"
+        if write:
+            # 要求参数可写的查询
+            sql = "SELECT * FROM %s_%s_map WHERE id = '%s' AND A%s=1 and (psr=1 or pmr=1)"
             cursor = self.sqlite_conn.execute(sql % (brand, device_type[0:2], param_id, device_type))
         else:
-            # 要求参数可写的查询
-            sql = "SELECT * FROM %s_%s_map WHERE id = '%s' AND A%s=1 and write=1"
+            # 按地址查询,device_type有些事数字开头不能做表头，所以统一在前面在'A', 比如'A3PN=1'表示3PN设备支持对应行的变量
+            sql = "SELECT * FROM %s_%s_map WHERE id = '%s' AND A%s=1 and (rir=1 or rhr=1)"
             cursor = self.sqlite_conn.execute(sql % (brand, device_type[0:2], param_id, device_type))
 
         for row in cursor:
@@ -119,7 +120,43 @@ class Mapper(object):
                 result[address_map['id']] = data
         return result
 
-    def map_data_address(self, param_dict, brand, device_type, write=False):
+    def map_ids_len(self, params_ids, brand, device_type):
+        """
+        @param params_ids: ['id113', 'id114', 'id115'...]
+        @param brand: 设备品牌'hongfa'/'timu' 用于指定映射表
+        @param device_type: GW23/1PNL/3PN等，详见data目录下的xxxxxx_xx_map.xlsx映射文件
+        @return:
+        """
+        maps = []
+        for param_id in params_ids:
+            address_map = self.get_by_id(brand, device_type, param_id, False)
+            if not address_map:
+                # 抛出未找到映射记录的param_id的异常,待处理
+                raise InvalidParamID
+            else:
+                maps.append({"address": HexConverter.hex_to_ushort(address_map['address'][2:]),
+                "len": address_map['len'],
+                "rir": address_map['rir'],
+                "rhr": address_map['rhr'],
+                })
+        # 先排序(key1:'rir', key2:'address'):
+        maps_sorted = sorted(maps, key=lambda x: str(x['rir']) + str(x['address']))
+        # 分拣
+        temp_len = 0
+        maps_result = []
+        while maps_sorted:
+            last_item = maps_sorted.pop(-1)
+            temp_len += last_item['len']
+            if not maps_sorted:
+                maps_result.append({'address': HexConverter.ushort_to_hex(last_item['address']), 'len': int(temp_len), 'fc': '04' if last_item['rhr'] else '03'})
+            elif maps_sorted[-1]['address'] + maps_sorted[-1]['len'] != last_item['address'] or maps_sorted[-1]['rhr'] != last_item['rhr']:
+                maps_result.append({'address': HexConverter.ushort_to_hex(last_item['address']), 'len': int(temp_len), 'fc': '04' if last_item['rhr'] else '03'})
+                temp_len = 0
+
+        return maps_result
+
+
+    def map_data_address(self, param_dict, brand, device_type):
         """
         @param param_dict: 需解析成 寄存器地址-16进制数据字典
         例：param_dict = {
@@ -134,7 +171,7 @@ class Mapper(object):
         """
         result_data = []
         for param_id, param_value in param_dict.items():
-            address_map = self.get_by_id(brand, device_type, param_id, write)
+            address_map = self.get_by_id(brand, device_type, param_id, True)
             if not address_map:
                 # 抛出未找到映射记录的param_id的异常,待处理
                 raise InvalidParamID
@@ -153,23 +190,29 @@ class Mapper(object):
                     raise InvalidParamValue
 
                 result_data.append({'address': address_map['address'],
-                                    'param_hex': param_hex})
+                                    'param_hex': param_hex,
+                                    'psr': address_map['psr'],
+                                    'pmr': address_map['pmr']
+                                    })
         return self.zip_address_hex_data(result_data)
 
     def zip_address_hex_data(self, data):
         """
-        找出所有连续地址的开头，和对应的十六进制数据
+        分拣06H/10H功能码的数据，找出所有连续地址(10H)的开头，拼装对应的十六进制数据，
         @param data: ：[{'address': '0x0150', 'param_hex': '06C2'}, {'address': '0x0151', 'param_hex': '04CF'}, ...]
-        @return:
+        @return: [{'address': '0241', 'data': '000A000A000A000A03E827100014', 'fc': '10'}, {'address': '0152', 'data': '0336', 'fc': '06'}...]
         """
-        # 排序数据
-        data_sorted = sorted(data, key=lambda x: x['address'])
+        data_10h = [elem for elem in data if elem['pmr'] == 1]
+        data_06h = [elem for elem in data if elem['pmr'] == 0]
+
+        # 10h 数据数据
+        data_sorted = sorted(data_10h, key=lambda x: x['address'])
         # 取出所有地址并转化成整数/和16进制数据
         address_int_sorted = [HexConverter.hex_to_ushort(i['address'][2:]) for i in data_sorted]
         data_hex_sorted = [i['param_hex'] for i in data_sorted]
         # 初始化结果数组
         result_data = []
-        # 找出所有连续地址的开头
+        # 找出所有连续地址的开头10h
         last_index = len(data_hex_sorted)
         while address_int_sorted:
             current_address_int = address_int_sorted.pop()
@@ -177,11 +220,21 @@ class Mapper(object):
 
             if is_start_address:
                 current_index = len(address_int_sorted)
-                result_data.append({
+                temp_data = {
                     'address': HexConverter.ushort_to_hex(current_address_int),
                     'data': ''.join(data_hex_sorted[current_index: last_index])
-                })
+                }
+                temp_data['fc'] = '06' if len(temp_data['data']) == 4 and data_10h[current_index]['psr'] == 1 else '10'
+                result_data.append(temp_data)
                 last_index = current_index
+
+        for data in data_06h:
+            result_data.append({
+                    'address': data['address'][2:],
+                    'data': data['param_hex'],
+                    'fc': '06'
+                })
+        print(result_data)
         return result_data
 
     @staticmethod

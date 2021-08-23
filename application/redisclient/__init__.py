@@ -45,6 +45,18 @@ class RedisConn(object):
         else:
             return True
 
+    def get_all(self, key, mini_count=2):
+        """
+        批量查询某个key下的所有数据
+        @param mini_count:
+        @param key:
+        @return:
+        """
+        keys = self._conn.keys(key + ':*')
+        if len(keys) < mini_count:
+            return []
+        return self._conn.mget(keys)
+
     def set_one(self, redis_model):
         assert isinstance(redis_model, RedisModel)
         key = redis_model.key
