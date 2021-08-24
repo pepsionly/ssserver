@@ -117,6 +117,8 @@ class Mapper(object):
                     if times:
                         times = float(times[1])
                         data = data / times
+                        # 保留两个小数点
+                        data = '%.2f' % data
                 result[address_map['id']] = data
         return result
 
@@ -234,7 +236,6 @@ class Mapper(object):
                     'data': data['param_hex'],
                     'fc': '06'
                 })
-        print(result_data)
         return result_data
 
     @staticmethod

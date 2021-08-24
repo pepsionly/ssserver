@@ -4,6 +4,15 @@ import struct
 class HexConverter:
 
     @staticmethod
+    def hex_to_bin(s):
+        print(bin(int(s, 16))[2:])
+        return bin(int(s, 16))[2:]
+
+    @staticmethod
+    def bin_to_hex(s):
+        return hex(int(s, 2))[2:]
+
+    @staticmethod
     def hex_to_utinyint(s):
         """
         :param s: '1C'
@@ -26,12 +35,15 @@ class HexConverter:
         return s.upper()
 
     @staticmethod
-    def hex_to_float(s):
+    def hex_to_float(s, precise=2):
         """
-        :param s: '435A91AA'
-        :return: 218.56900024414062
+        @param s: '435A91AA'
+        @param precise: 保留几个小数点
+        :return: 218.56
         """
-        return struct.unpack('!f', bytes.fromhex(s))[0]
+        preciser = '%.' + str(precise) + 'f'
+        s_float = struct.unpack('!f', bytes.fromhex(s))[0]
+        return preciser % s_float
 
     @staticmethod
     def float_to_hex(f):

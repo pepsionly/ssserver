@@ -31,6 +31,7 @@ class HongFa(GatewayClient):
         self.topic_handlers = [self.handle_topic_uploads]"""
 
     def handle_topic_uploads(self, client, userdata, msg):
+
         # 数据
         msg_str = msg.payload.decode()
         msg_obj = json.loads(msg_str)
@@ -75,11 +76,11 @@ class HongFa(GatewayClient):
         # 解析数据
         data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
-
         # 完善并上报
-        data_s['OL'] = data_gw['OL'] = True
+        data_gw['OL'] = True
         data_s['brand'] = data_gw['brand'] = self.brand
         data_s['GID'] = gateway_id
+        data_s = SwitchStatus(data_s).obj
         device_type, auto_data_count = self.get_switch_device_type(data_s['SDT'])
         data_s['ADC'] = auto_data_count
         self.redis_conn.set_one(SwitchStatus(data_s))
@@ -106,10 +107,12 @@ class HongFa(GatewayClient):
             'GID': gateway_id,
             'SID': switch_id
         }))
+
         if switch_status:
             device_type, auto_data_count = self.get_switch_device_type(switch_status['SDT'])
         elif modbus_data[4:8] == '0000':
             # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
+            # 映射设备类型
             device_type, auto_data_count = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
             self.redis_conn.set_one(SwitchStatus({'brand': self.brand,
                                                   'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
@@ -119,7 +122,9 @@ class HongFa(GatewayClient):
                                                   'OL': True,
                                                   'ADC': auto_data_count
                                                   }))
-
+        # 处理尚未获取到设备类型的情况
+        if 'device_type' not in locals().keys():
+            return
         # 解析 Modbus TCP 原始值
         result = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj, device_type=device_type)
 
@@ -129,8 +134,12 @@ class HongFa(GatewayClient):
         time_stamp = CommonUtils.datetime_timestamp(report_time)
         if not result:
             # 处理CRC验证出错
-            # return None
-            pass
+            return
+        """
+            因为存在其他自动上传的数据与周期上传的数据相同
+            所以这里还要判断是否到断路器数据的采集时间了
+            不如建个mysql表存断路器和网关的对象吧
+        """
         # 暂存待处理：
         self.redis_conn.set_one(SwitchTempData({'brand': self.brand,
                                                 'gateway_sn': gateway_id,
@@ -140,24 +149,33 @@ class HongFa(GatewayClient):
                                                 'date': time_stamp,
                                                 'data': result,
                                                 }))
+        # 尝试合并、入库
         self.try_merge_data(self.brand, gateway_id, switch_id)
 
     def try_merge_data(self, brand, gateway_id, switch_id):
         # 取出暂存的值
-        key = 'temp:%s:%s:%s' % (brand, gateway_id, switch_id)
-        temp_datas = self.redis_conn.get_all(key)
+        keys = 'temp:%s:%s:%s:*' % (brand, gateway_id, switch_id)
+        temp_datas = self.redis_conn.get_all(keys, 3)
         temp_datas = [json.loads(item) for item in temp_datas]
-        # 判断是否合并
-        if len(temp_datas) < temp_datas[0]['siblings']:
+        # 判断数据条数是否达到要求
+        if not temp_datas or len(temp_datas) < temp_datas[0]['siblings']:
             return
+        # 先排序
+        # temp_datas = sorted(temp_datas, key=lambda x: x['start_address'])
+        # 判断数据的时间戳是不是严格递增，先不用，会受其他自动上传的数据影响？：
+        # if any(times[i + 1] <= times[i] for i in range(0, len(times) - 1)):
+            # return
+        # 判断数据的时间差
         times = [int(item['date']) for item in temp_datas]
         time_diff = max(times) - min(times)
         if time_diff >= 10:
             return
+
+        # 入库合并的数据
         merged_data = {}
         for item in temp_datas:
-            merged_data.update(item['data'])
-        merged_data = dict((key, value) for key, value in merged_data.items() if 'id' not in key)
+            merged_data.update(dict((key, value) for key, value in item['data'].items() if 'id' not in key))
+        # merged_data = dict((key, value) for key, value in merged_data.items() if 'id' not in key)
 
         data_report = SwitchData({
             'dtu_sn': temp_datas[0]['gateway_sn'],
@@ -168,8 +186,9 @@ class HongFa(GatewayClient):
                 'data': merged_data
             }],
         })
-
         self.redis_conn.left_push(data_report)
+        # 还要清空temp下的key
+        self.redis_conn.del_all(keys)
 
     def validate_crc_code(parse_func):
         """

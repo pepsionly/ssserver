@@ -12,8 +12,7 @@ class Config(object):
     TEMPLATES_AUTO_RELOAD = True
 
     # 配置redis
-    # 项目上线以后，这个地址就会被替换成真实IP地址，mysql也是
-    REDIS_HOST = '192.168.30.9'
+    REDIS_HOST = '192.168.30.10'
     # REDIS_HOST = '192.168.0.218'
     REDIS_PORT = '6379'
     REDIS_PASSWORD = 'xyz123456'

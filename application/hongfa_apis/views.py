@@ -41,6 +41,7 @@ def read_gw_params():
         raise DeviceTypeNotFound()
 
     for id_len_map in id_len_maps:
+        print(id_len_map)
         gen_func = eval('app.hongfa.gen_gw_%sh' % id_len_map['fc'])
         topic, payload = gen_func(gid, id_len_map['address'], id_len_map['len'])
         app.mqtt_client.publish(topic, payload, qos=1)

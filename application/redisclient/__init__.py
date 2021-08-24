@@ -45,18 +45,24 @@ class RedisConn(object):
         else:
             return True
 
-    def get_all(self, key, mini_count=2):
+    def get_all(self, keys, mini_count=0):
         """
         批量查询某个key下的所有数据
-        @param mini_count:
-        @param key:
-        @return:
+        @param mini_count: 最少返回多少条
+        @param keys: 模糊查询的key
+        @return: 匹配的结果数组
         """
-        keys = self._conn.keys(key + ':*')
+        keys = self._conn.keys(keys)
         if len(keys) < mini_count:
             return []
         return self._conn.mget(keys)
 
+    def del_all(self, keys):
+        """
+        @param keys: 模糊查询的key
+        @return: 删除的数据条数
+        """
+        self._conn.delete(*self._conn.keys(keys))
     def set_one(self, redis_model):
         assert isinstance(redis_model, RedisModel)
         key = redis_model.key
