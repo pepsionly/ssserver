@@ -4,7 +4,13 @@ from application.redisclient import RedisConn
 from config.dev import DevelopmentConfig
 from application.mqttclient.mqttclient import MqttClient
 from application.gatewayclient.hongfa import HongFa
+from application.taskscheduler import TaskScheduler
 from config.const import Const
+import gevent
+from gevent import pywsgi
+from gevent import monkey
+monkey.patch_all()  # 打上猴子补丁
+
 
 if __name__ == '__main__':
     """
@@ -27,8 +33,12 @@ if __name__ == '__main__':
     # 启动mqtt客户端开始监听
     mqtt_client.run()
 
+    # 初始化并启动任务调度器
+    scheduler = TaskScheduler(mqtt_client, redis_conn)
+    scheduler.run()
+
     """
-        初始化启动服务
+        初始化、启动服务
     """
     # 初始化服务实例
     app = Flask(__name__)
@@ -45,7 +55,7 @@ if __name__ == '__main__':
     app.__setattr__('conf', conf)
     app.__setattr__('mapper', mapper)
     app.__setattr__('redis_conn', redis_conn)
-
+    app.__setattr__('scheduler', scheduler)
 
 
     # 测试用的方法
@@ -59,10 +69,9 @@ if __name__ == '__main__':
         }
         device_brand = 'hongfa'
         device_type = 'GW23'
-
         result = mapper.map_data_address(param_dict, device_brand, device_type)
-
         return 'testing'
 
     # 启动服务端
-    app.run()
+    server = pywsgi.WSGIServer(('127.0.0.1', 5000), app)
+    server.serve_forever()

@@ -3,6 +3,7 @@ import redis
 import config
 from .model import RedisModel
 
+
 class RedisConn(object):
     def __init__(self, **kwargs):
         conf = config.Config()
@@ -54,8 +55,8 @@ class RedisConn(object):
         """
         keys = self._conn.keys(keys)
         if len(keys) < mini_count:
-            return []
-        return self._conn.mget(keys)
+            return [], []
+        return keys, self._conn.mget(keys)
 
     def del_all(self, keys):
         """
@@ -63,6 +64,30 @@ class RedisConn(object):
         @return: 删除的数据条数
         """
         self._conn.delete(*self._conn.keys(keys))
+
+    def hset(self, redis_model):
+        """
+        @param redis_model: RedisModels 实例
+        @return:
+        """
+        # 断言
+        assert isinstance(redis_model, RedisModel)
+        for key, value in redis_model.obj.items():
+            self._conn.hset(redis_model.key, key, value)
+
+    def hget(self, redis_model, attr=''):
+        """
+        @param redis_model: RedisModels 实例
+        @param attr: 需要取出的属性值
+        @return:
+        """
+        # 断言
+        assert isinstance(redis_model, RedisModel)
+        if not attr:
+            return self._conn.hgetall(redis_model.key)
+        else:
+            return self._conn.hget(redis_model.key, attr)
+
     def set_one(self, redis_model):
         assert isinstance(redis_model, RedisModel)
         key = redis_model.key

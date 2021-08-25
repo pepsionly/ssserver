@@ -101,3 +101,14 @@ class SwitchTempData(RedisModel):
             return None
         return 'temp:%s:%s:%s:%s' % (
             self.obj['brand'], self.obj['gateway_sn'], self.obj['switch_sn'], self.obj['start_address'])
+
+
+class RequestTask(RedisModel):
+    """
+        入列的网关请求任务
+    """
+    topic = RedisColumn(no_null=True)
+
+    @property
+    def key(self):
+        return 'queues:%s' % (self.obj['topic'])

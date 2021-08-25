@@ -5,8 +5,6 @@ import time
 from collections import Iterable
 
 
-
-
 class CommonUtils(object):
 
     def error_management(func):
@@ -73,7 +71,7 @@ class CommonUtils(object):
             new_address_hex = "0x%04X" % new_address_int
             address_list.append(new_address_hex)
         return address_list
-    
+
     @staticmethod
     def cal_modbus_crc16(string):
         data = bytearray.fromhex(string)
@@ -123,4 +121,3 @@ class CommonUtils(object):
         # 将"2012-03-28 06:53:40"转化为时间戳
         s = time.mktime(time.strptime(dt, '%Y-%m-%d %H:%M:%S'))
         return int(s)
-

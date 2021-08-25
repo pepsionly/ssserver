@@ -5,12 +5,20 @@ class HexConverter:
 
     @staticmethod
     def hex_to_bin(s):
-        print(bin(int(s, 16))[2:])
-        return bin(int(s, 16))[2:]
+        """
+        :param s: '0008'
+        :return: '1000'
+        """
+        b = (int(s, 16))
+        return '{:04b}'.format(b)
 
     @staticmethod
     def bin_to_hex(s):
-        return hex(int(s, 2))[2:]
+        """
+        :param s: '1000'
+        :return: '0008'
+        """
+        return "%04X" % int(s, 2)
 
     @staticmethod
     def hex_to_utinyint(s):

@@ -12,7 +12,7 @@ class Config(object):
     TEMPLATES_AUTO_RELOAD = True
 
     # 配置redis
-    REDIS_HOST = '192.168.30.10'
+    REDIS_HOST = '192.168.30.11'
     # REDIS_HOST = '192.168.0.218'
     REDIS_PORT = '6379'
     REDIS_PASSWORD = 'xyz123456'

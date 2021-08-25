@@ -10,6 +10,7 @@ from utils.hexconverter import HexConverter
 from utils import CommonUtils
 from config.const import Const
 from utils.exceptions import *
+from application.redisclient.model.models import *
 
 consts = Const()
 hongfa = Blueprint('/', __name__, template_folder='templates', static_folder='static')
@@ -44,8 +45,12 @@ def read_gw_params():
         print(id_len_map)
         gen_func = eval('app.hongfa.gen_gw_%sh' % id_len_map['fc'])
         topic, payload = gen_func(gid, id_len_map['address'], id_len_map['len'])
-        app.mqtt_client.publish(topic, payload, qos=1)
-
+        # app.mqtt_client.publish(topic, payload, qos=1)
+        app.scheduler.queue_up(RequestTask({
+            'topic': topic,
+            'payload': payload,
+            'qos': 0
+        }))
     return 'success'
 
 
@@ -67,9 +72,15 @@ def set_gw_param():
         raise DeviceTypeNotFound()
 
     for address_data_map in address_data_maps:
+        time.sleep(0.2)
         gen_func = eval('app.hongfa.gen_gw_%sh' % address_data_map['fc'])
         topic, payload = gen_func(gid, address_data_map['address'], address_data_map['data'])
-        app.mqtt_client.publish(topic, payload, qos=1)
+        # app.mqtt_client.publish(topic, payload, qos=1)
+        app.scheduler.queue_up(RequestTask({
+            'topic': topic,
+            'payload': payload,
+            'qos': 0
+        }))
     return 'success'
 
 @hongfa.route('/test')

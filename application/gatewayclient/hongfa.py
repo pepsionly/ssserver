@@ -43,10 +43,11 @@ class HongFa(GatewayClient):
         # 处理消息分类二：断路器上线
         elif msg_obj.get('SD_RAW_04'):
             self.handle_switch_online(topic, msg_obj)
-
+        elif msg_obj.get('GW_Respond') or msg_obj.get('MRaw_Respond'):
+            #计算哈希，回复数据，解锁
+            print(msg_obj)
         else:
             print(msg_obj)
-
     def handle_topic_will(self, client, userdata, msg):
         # 数据
         msg_str = msg.payload.decode()
@@ -77,14 +78,14 @@ class HongFa(GatewayClient):
         data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         # 完善并上报
-        data_gw['OL'] = True
+        data_gw['OL'] = 1
         data_s['brand'] = data_gw['brand'] = self.brand
-        data_s['GID'] = gateway_id
+        data_s['GID'] = data_gw['GID'] = gateway_id
         data_s = SwitchStatus(data_s).obj
         device_type, auto_data_count = self.get_switch_device_type(data_s['SDT'])
         data_s['ADC'] = auto_data_count
-        self.redis_conn.set_one(SwitchStatus(data_s))
-        self.redis_conn.set_one(GatewayStatus(data_gw))
+        self.redis_conn.hset(SwitchStatus(data_s))
+        self.redis_conn.hset(GatewayStatus(data_gw))
 
     def handle_auto_report(self, topic, msg_obj):
         """
@@ -102,39 +103,42 @@ class HongFa(GatewayClient):
         modbus_data = msg_obj.get('DataUp04')
 
         # 先从reporter(redis等)获取断路器类型代号
-        switch_status = self.redis_conn.get_one(SwitchStatus({
+        switch_status = self.redis_conn.hget(SwitchStatus({
             'brand': self.brand,
             'GID': gateway_id,
             'SID': switch_id
         }))
-
         if switch_status:
-            device_type, auto_data_count = self.get_switch_device_type(switch_status['SDT'])
-        elif modbus_data[4:8] == '0000':
-            # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
-            # 映射设备类型
-            device_type, auto_data_count = self.get_switch_device_type(HexConverter.hex_to_ushort(modbus_data[34:38]))
-            self.redis_conn.set_one(SwitchStatus({'brand': self.brand,
-                                                  'SDT': HexConverter.hex_to_ushort(modbus_data[34:38]),
-                                                  'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
-                                                  'SID': switch_id,
-                                                  'GID': gateway_id,
-                                                  'OL': True,
-                                                  'ADC': auto_data_count
-                                                  }))
+            device_type, auto_data_count = self.get_switch_device_type(int(switch_status['SDT']))
+        if modbus_data[4:8] == '0000':
+            device_ol = HexConverter.hex_to_bin(modbus_data[18:22])[0]
+            new_switch_status = {'brand': self.brand,
+                                 'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
+                                 'SID': switch_id,
+                                 'GID': gateway_id,
+                                 'OL': 0 if device_ol == '1' else 1,
+                                 }
+            if not switch_status:
+                # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
+                # 映射设备类型
+                device_type_int = HexConverter.hex_to_ushort(modbus_data[34:38])
+                device_type, auto_data_count = self.get_switch_device_type(device_type_int)
+                new_switch_status.update({'SDT': device_type_int, 'ADC': auto_data_count})
+            # 更新断路器状态
+            self.redis_conn.hset(SwitchStatus(new_switch_status))
         # 处理尚未获取到设备类型的情况
         if 'device_type' not in locals().keys():
             return
         # 解析 Modbus TCP 原始值
         result = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj, device_type=device_type)
+        if not result:
+            # 处理CRC验证出错
+            return
 
         # 转化日期格式成'%Y-%m-%d %H:%M:%S'
         report_time = CommonUtils.standardize_datetime_210816144502(report_time)
         # 转化日期为时间戳
         time_stamp = CommonUtils.datetime_timestamp(report_time)
-        if not result:
-            # 处理CRC验证出错
-            return
         """
             因为存在其他自动上传的数据与周期上传的数据相同
             所以这里还要判断是否到断路器数据的采集时间了
@@ -155,7 +159,7 @@ class HongFa(GatewayClient):
     def try_merge_data(self, brand, gateway_id, switch_id):
         # 取出暂存的值
         keys = 'temp:%s:%s:%s:*' % (brand, gateway_id, switch_id)
-        temp_datas = self.redis_conn.get_all(keys, 3)
+        temp_keys, temp_datas = self.redis_conn.get_all(keys, 3)
         temp_datas = [json.loads(item) for item in temp_datas]
         # 判断数据条数是否达到要求
         if not temp_datas or len(temp_datas) < temp_datas[0]['siblings']:
