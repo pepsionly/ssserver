@@ -31,7 +31,9 @@ class HongFa(GatewayClient):
         self.topic_handlers = [self.handle_topic_uploads]"""
 
     def handle_topic_uploads(self, client, userdata, msg):
-
+        """
+        hongfa/FFD1212006105728/upload/订阅回调
+        """
         # 数据
         msg_str = msg.payload.decode()
         msg_obj = json.loads(msg_str)
@@ -45,19 +47,75 @@ class HongFa(GatewayClient):
             self.handle_switch_online(topic, msg_obj)
         elif msg_obj.get('GW_Respond') or msg_obj.get('MRaw_Respond'):
             #计算哈希，回复数据，解锁
-            print(msg_obj)
+            self.handle_respond(topic, msg_obj)
+            self.unlock_gw(topic)
         else:
-            print(msg_obj)
+            logger.warning('-=-=-=-=-=-=-=-=-=-=unhandled json_msg-=-=-=-=-=-=-=-=-=-=')
+            logger.warning(msg_str)
+
     def handle_topic_will(self, client, userdata, msg):
-        # 数据
-        msg_str = msg.payload.decode()
+        """
+        hongfa/FFD1212006105728/will/订阅回调，处理网关下线，生成网关下线状态入库redis
+        """
         # 主题
         topic = msg.topic
-        print(topic)
-        print(msg_str)
+        # 更新网关在线状态
+        self.redis_conn.hset(GatewayStatus({
+            'brand': self.brand,
+            'GID': topic.split('/')[1],
+            'OL': '0'
+        }))
+        """
+            mark 这里处理网关下线
+        """
+
+    def handle_respond(self, topic, msg_obj):
+        """
+        处理请求的响应，生成哈希，入库redis
+        :param topic: hongfa/FFD1212006105728/upload/
+        :param msg_obj: {'GSN': 'FFD1212006105728', 'GW_Respond': '4E3C02410006FF1002410007'}
+                        {"SSN":"6B02210710091756","MRaw_Respond":"F31C0010000F02040C000000000000000000000000"}
+        :return:
+        """
+        # 网关ID
+        gateway_id = topic.split('/')[1].strip()
+        # 断路器ID
+        switch_id = msg_obj.get('SSN')
+        if switch_id:
+            # msg_obj包含SSN就是断路器的响应
+            modbus_data = msg_obj.get('MRaw_Respond')
+            switch_status = self.redis_conn.hget(SwitchStatus({
+                'brand': self.brand,
+                'GID': gateway_id,
+                'SID': switch_id
+            }))
+            if switch_status:
+                device_code = switch_status.get('SDT')
+                device_type, v2 = self.get_switch_device_type(device_code)
+        elif msg_obj.get('GSN'):
+            # msg_obj包含GSN就是网关的响应
+            modbus_data = msg_obj.get('GW_Respond')
+            gw_status = self.redis_conn.hget(GatewayStatus({
+                'brand': self.brand,
+                'GID': gateway_id,
+            }))
+            if gw_status:
+                device_code = gw_status.get('GDT')
+                device_type = self.get_gateway_device_type(device_code)
+
+        key, fc = self.parse_respond_key(gateway_id, modbus_data)
+        if fc == '03' or fc == '04':
+            data = self.parse_tcp_data(modbus_data, topic=topic, msg_obj=msg_obj, device_type=device_type)
+        else:
+            data = {'result': 'success'}
+        data_str = json.dumps(data)
+        key_waiting = self.redis_conn.get(key)
+        if key_waiting:
+            self.redis_conn.set(key, data_str, ex=60)
 
     def handle_switch_online(self, topic, msg_obj):
         """
+        处理断路器上线，生成断路器和网关状态入库redis
         :param topic: hongfa/FFD1212006105728/upload/
         :param msg_obj: {"GWD_RAW_04":"D3F60000001100040E001700020002FFD1212006105728","SD_RAW_04":"63FD000D000F00040C000500026B02210710091756"}
         :return:
@@ -78,7 +136,7 @@ class HongFa(GatewayClient):
         data_gw = self.parse_tcp_data(modbus_data_gw, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         data_s = self.parse_tcp_data(modbus_data_s, topic=topic, msg_obj=msg_obj, device_type=gw_device_type)
         # 完善并上报
-        data_gw['OL'] = 1
+        data_gw['OL'] = data_s['OL'] = 1
         data_s['brand'] = data_gw['brand'] = self.brand
         data_s['GID'] = data_gw['GID'] = gateway_id
         data_s = SwitchStatus(data_s).obj
@@ -89,6 +147,7 @@ class HongFa(GatewayClient):
 
     def handle_auto_report(self, topic, msg_obj):
         """
+        处理断路器自动上传的数据，数据缓存到redis，同时维护断路器和网关的在线状态
         :param topic: hongfa/FF3D210725113600/upload/
         :param msg_obj: {"SSN":"4C36210605133128","DataUp04":"76B80000002F01042C00000000000000000003000100010001003F000000000000003C3797FFDB9045000000000000435DC9280025","TM":"220105165657"}
         :return:
@@ -116,8 +175,12 @@ class HongFa(GatewayClient):
                                  'SA': HexConverter.hex_to_utinyint(modbus_data[12:14]),
                                  'SID': switch_id,
                                  'GID': gateway_id,
-                                 'OL': 0 if device_ol == '1' else 1,
+                                 'OL': '0' if device_ol == '1' else 1,
                                  }
+            if new_switch_status['OL'] == '0':
+                """
+                    mark 这里处理断路器下线
+                """
             if not switch_status:
                 # 若reporter中没有断路器类型代号，则尝试从开始地址为'0000'的数据中获取并保存到reporter中
                 # 映射设备类型
@@ -126,6 +189,16 @@ class HongFa(GatewayClient):
                 new_switch_status.update({'SDT': device_type_int, 'ADC': auto_data_count})
             # 更新断路器状态
             self.redis_conn.hset(SwitchStatus(new_switch_status))
+
+
+        # 01地址的0000条信息汇报同时更新网关在线状态（处理遗言常驻且内容不变）
+        if modbus_data[12:14] == '01' and modbus_data[4:8] == '0000':
+            self.redis_conn.hset(GatewayStatus({
+                'brand': self.brand,
+                'GID': topic.split('/')[1],
+                'OL': '1'
+            }))
+
         # 处理尚未获取到设备类型的情况
         if 'device_type' not in locals().keys():
             return
@@ -144,7 +217,7 @@ class HongFa(GatewayClient):
             所以这里还要判断是否到断路器数据的采集时间了
             不如建个mysql表存断路器和网关的对象吧
         """
-        # 暂存待处理：
+        # 暂存断路器数据待处理：
         self.redis_conn.set_one(SwitchTempData({'brand': self.brand,
                                                 'gateway_sn': gateway_id,
                                                 'switch_sn': switch_id,
@@ -172,7 +245,7 @@ class HongFa(GatewayClient):
         # 判断数据的时间差
         times = [int(item['date']) for item in temp_datas]
         time_diff = max(times) - min(times)
-        if time_diff >= 10:
+        if time_diff >= 30:
             return
 
         # 入库合并的数据
@@ -318,7 +391,7 @@ class HongFa(GatewayClient):
         @param gateway_id: 网关GSN，供装饰器函数调用
         @param address: 起始寄存器地址
         @param register_count: 读取的寄存器数量
-        @return: 见调用 gen_04h(address, register_count)
+        @return: 见调用 gen_read(address, register_count)
         """
         return HongFa.gen_read(address, register_count, function_code='03')
 
@@ -330,7 +403,7 @@ class HongFa(GatewayClient):
         @param gateway_id: 网关GSN，供装饰器函数调用
         @param address: 起始寄存器地址
         @param register_count: 读取的寄存器数量
-        @return: 见调用 gen_04h(address, register_count)
+        @return: 见调用 gen_read(address, register_count)
         """
         return HongFa.gen_read(address, register_count)
 
@@ -430,6 +503,79 @@ class HongFa(GatewayClient):
         return crc + adu_without_crc
 
     @staticmethod
+    def parse_respond_key(gateway_id, modbus_data):
+        """
+        @param gateway_id:
+        @param modbus_data:
+        10H : {'GSN': 'FFD1212006105728', 'GW_Respond': '4E3C 0241 0006 FF 10 0241 0007'} 写成功0007个寄存器
+        06H : {'GSN': 'FFD1212006105728', 'GW_Respond': '195A01520006FF0601520822'} 写成功0001个寄存器
+        03/04H: {"SSN":"6B02210710091756","MRaw_Respond":"F31C 0010 000F 02 04 0C 000000000000000000000000"} 读成功000C个寄存器
+        @return: 暂存结果的 redis key和功能码
+        """
+        unit_identifier = modbus_data[12:14]
+        fc = modbus_data[14:16]
+        address = modbus_data[4:8]
+        # 数据长度默认
+        register_count_hex = ''
+        if fc == '10':
+            register_count_hex = modbus_data[-4:]
+        elif fc == '06':
+            register_count_hex = '0001'
+        elif fc == '03' or fc == '04':
+            register_count_int = HexConverter.hex_to_ushort('00' + modbus_data[16:18]) / 2
+            register_count_hex = HexConverter.ushort_to_hex(register_count_int)
+
+        key = ':'.join(['responds', gateway_id, unit_identifier, fc, address, register_count_hex])
+        return key, fc
+
+    @staticmethod
+    def parse_request_key(topic, payload):
+        """
+        @param topic:
+        @param modbus_data: F1F302410015FF10024100070e000B000B000B000B03DE03E70064
+        @param switch_id:
+        @return:
+        """
+        """
+            MBAP = CRC检验码 + 起始寄存器地址 + 以下数据的字节数 + 单元标识符
+            MBAP = F1F3     + 0241        + 0015          + FF
+            adu = MBAP + 功能码 + 起始寄存器地址 + 寄存器数量
+            adu = MBAP + 04    + 0241        + 0007
+        """
+        # 网关ID
+        gateway_id = topic.split('/')[1].strip()
+        payload_obj = json.loads(payload)
+        modbus_data = payload_obj.get('MRaw_Request')
+        if not modbus_data:
+            modbus_data = payload_obj.get('GW_Request')
+        if not modbus_data:
+            # 处理非 MRaw_Request 和 Gw_Request
+            return None, None
+        unit_identifier = modbus_data[12:14]
+        fc = modbus_data[14:16]
+        address = modbus_data[4:8]
+        # 数据长度默认
+        register_count_hex = ''
+        if fc == '10':
+            register_count_hex = modbus_data[20:24]
+        elif fc == '06':
+            register_count_hex = '0001'
+        elif fc == '03' or fc == '04':
+            """
+                adu = MBAP + 功能码 + 起始寄存器地址 + 寄存器数量
+                adu = MBAP + 04    + 0241        + 0007
+            """
+            register_count_int = HexConverter.hex_to_ushort(modbus_data[-4:])
+            register_count_hex = HexConverter.ushort_to_hex(register_count_int)
+        key = ':'.join(['responds', gateway_id, unit_identifier, fc, address, register_count_hex])
+        return key, fc
+
+    def unlock_gw(self, topic):
+        topic = topic.replace('upload', 'download')
+        key = 'locks:' + topic
+        self.redis_conn.delete(key)
+
+    @staticmethod
     def get_switch_device_type(code):
         """
         :param code: 5
@@ -438,7 +584,7 @@ class HongFa(GatewayClient):
         mapper = {1: ('1P', 0), 2: ('1PN', 0), 3: ('1PNL', 3),
                   4: ('3P', 0), 5: ('3PN', 4), 6: ('3PNL', 0),
                   12: ('2P', 0), 16: ('4P', 0)}
-        return mapper.get(code)
+        return mapper.get(int(code))
 
 
 

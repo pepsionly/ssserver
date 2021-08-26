@@ -42,7 +42,6 @@ def read_gw_params():
         raise DeviceTypeNotFound()
 
     for id_len_map in id_len_maps:
-        print(id_len_map)
         gen_func = eval('app.hongfa.gen_gw_%sh' % id_len_map['fc'])
         topic, payload = gen_func(gid, id_len_map['address'], id_len_map['len'])
         # app.mqtt_client.publish(topic, payload, qos=1)
@@ -81,6 +80,11 @@ def set_gw_param():
             'payload': payload,
             'qos': 0
         }))
+        app.scheduler.queue_up(RequestTask({
+            'topic': topic,
+            'payload': '{"ReportAll": "*"}',
+            'qos': 0
+        }))
     return 'success'
 
 @hongfa.route('/test')
@@ -93,12 +97,16 @@ def test_func():
     sid = '6B02210710091756'
     identifier = 2
     address = '0010'
-    register_count = 50
+    register_count = 6
 
     gen_func = eval('app.hongfa.gen_switch_%sh' % '04')
     topic, payload = gen_func(gid, sid, identifier, address, register_count)
-    app.mqtt_client.publish(topic, payload, qos=1)
-    app.mqtt_client.publish(topic, '{“ReportAll”:“*”}', qos=1)
+    app.scheduler.queue_up(RequestTask({
+        'topic': topic,
+        'payload': payload,
+        'qos': 0
+    }))
+    # app.mqtt_client.publish(topic, payload, qos=1)
     return 'success'
 
 

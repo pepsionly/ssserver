@@ -1,8 +1,8 @@
 import json
 import time
 from application.redisclient.model.models import RequestTask
-import gevent
-
+import threading
+from application.gatewayclient.hongfa import HongFa
 
 class TaskScheduler(object):
 
@@ -33,25 +33,26 @@ class TaskScheduler(object):
     def assign_tasks(self, request_tasks):
         for request_task in request_tasks:
             task_obj = json.loads(request_task)
-            self.lock_gw(task_obj['topic'])
+            self.lock_gw(task_obj['topic'], request_task)
+            key, fc = HongFa.parse_request_key(task_obj['topic'], task_obj['payload'])
+            if key:
+                self.redis_conn.set(key, 'waiting', ex=60)
             self.mqtt_client.publish(task_obj['topic'], task_obj['payload'], task_obj['qos'])
 
-    def lock_gw(self, topic):
+    def lock_gw(self, topic, task_str, ex=60):
         key = 'locks:' + topic
-        self.redis_conn.set(key, '1', ex=30)
-
-    def unlock_gw(self, topic):
-        key = 'locks:' + topic
-        self.redis_conn.set(key, '0')
+        # 设置锁过期的时间
+        if any(i in task_str for i in ['GWD_SLAVE_ALL', 'ReportAll', 'FindAllSalves', 'SyncTime']):
+            ex = 5
+        self.redis_conn.set(key, '1', ex=ex)
 
     def _run(self):
         while True:
-            print('循环')
             unlock_topics = self.find_unlock_topics()
             request_tasks = self.get_tasks(unlock_topics)
             self.assign_tasks(request_tasks)
-            time.sleep(10)
+            time.sleep(0.1)
 
     def run(self):
-        p = gevent.spawn(self._run())
-        gevent.joinall([p])
+        t1 = threading.Thread(target=self._run, name='scheduler')
+        t1.start()
