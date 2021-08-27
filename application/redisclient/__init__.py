@@ -1,8 +1,10 @@
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, parse_qs
 import redis
 import config
 from .model import RedisModel
-
+from utils.exceptions import ResponseTimeOut
 
 class RedisConn(object):
     def __init__(self, **kwargs):
@@ -13,6 +15,22 @@ class RedisConn(object):
 
     def __del__(self):
         self._conn.close()
+
+
+    def subscribe(self, key, timeout=5):
+        """
+        订阅方法
+        """
+
+        pub = self._conn.pubsub()
+        pub.subscribe(key)  # 同时订阅多个频道，要用psubscribe
+        pub.listen()
+        while True:
+            msg = pub.parse_response(block=False, timeout=5)
+            if msg is None:
+                ResponseTimeOut
+            elif msg[0] == 'message':
+                return msg[2]
 
     def pool_from_url(self, **kwargs):
         url_options = dict()

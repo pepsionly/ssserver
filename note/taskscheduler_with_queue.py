@@ -1,10 +1,29 @@
 import json
 import time
-from application.redisclient.model.models import RequestTask
 import threading
 from application.gatewayclient.hongfa import HongFa
 
+
 class TaskScheduler(object):
+    """
+         此为对网关/断路器请求的调度器，基于 redis list 实现对每个网关请求的队列，但测试存在问题，暂时不采用。
+         主要问题如下：
+            同时写宏发网关/断路器寄存器的请求存在请求不同，但是响应完全相同的情况：
+                比如两个请求写多个相同的寄存器（写入的值不同），响应只会返回写成功的起始地址和寄存器个数
+
+            故必须先判断请求是不是已经发出才开始监听响应，这样前端每次写多个寄存器就必须要经过以下过程：
+            1.前端发出请求
+
+            2.1 服务端响应：请求已经发出mqtt主题
+            2.2 服务端响应：请求已入redis队列
+
+            3.1 2.1的情况，前端就可以开始等待响应/或订阅redis获取结果
+
+            3.2 2.2的情况则还需等服务端给出‘请求已经发出mqtt主题’的响应才能开始监听结果
+
+            过程过于繁琐，故暂不采用
+
+    """
 
     def __init__(self, mqtt_client, redis_conn):
         self.mqtt_client = mqtt_client
@@ -12,8 +31,6 @@ class TaskScheduler(object):
 
     def queue_up(self, request_task):
         self.redis_conn.left_push(request_task)
-        topic = request_task.obj['topic']
-        lock = self.redis_conn.get('temp:topics:' + topic)
 
     def find_unlock_topics(self):
         all_queues = self.redis_conn.keys('queues:*')
@@ -34,9 +51,7 @@ class TaskScheduler(object):
         for request_task in request_tasks:
             task_obj = json.loads(request_task)
             self.lock_gw(task_obj['topic'], request_task)
-            key, fc = HongFa.parse_request_key(task_obj['topic'], task_obj['payload'])
-            if key:
-                self.redis_conn.set(key, 'waiting', ex=60)
+
             self.mqtt_client.publish(task_obj['topic'], task_obj['payload'], task_obj['qos'])
 
     def lock_gw(self, topic, task_str, ex=60):

@@ -106,6 +106,7 @@ class SwitchTempData(RedisModel):
 class RequestTask(RedisModel):
     """
         入列的网关请求任务
+        队列请求存在问题，待废弃
     """
     topic = RedisColumn(no_null=True)
 

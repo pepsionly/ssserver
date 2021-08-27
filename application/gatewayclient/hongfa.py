@@ -1,4 +1,5 @@
 import json
+from json import JSONDecodeError
 
 from application.gatewayclient import GatewayClient
 from utils.__init__ import CommonUtils
@@ -34,11 +35,16 @@ class HongFa(GatewayClient):
         """
         hongfa/FFD1212006105728/upload/订阅回调
         """
-        # 数据
-        msg_str = msg.payload.decode()
-        msg_obj = json.loads(msg_str)
         # 主题
         topic = msg.topic
+
+        # 数据
+        msg_str = msg.payload.decode()
+        try:
+            msg_obj = json.loads(msg_str)
+        except JSONDecodeError:
+            logger.warning('unhandled msg: [%s] in topic：[%s]' % (msg_str, topic))
+            return
         # 处理消息分类一：定时上报的数据
         if msg_obj.get('DataUp04'):
             self.handle_auto_report(topic, msg_obj)
@@ -48,7 +54,6 @@ class HongFa(GatewayClient):
         elif msg_obj.get('GW_Respond') or msg_obj.get('MRaw_Respond'):
             #计算哈希，回复数据，解锁
             self.handle_respond(topic, msg_obj)
-            self.unlock_gw(topic)
         else:
             logger.warning('-=-=-=-=-=-=-=-=-=-=unhandled json_msg-=-=-=-=-=-=-=-=-=-=')
             logger.warning(msg_str)
@@ -77,6 +82,9 @@ class HongFa(GatewayClient):
                         {"SSN":"6B02210710091756","MRaw_Respond":"F31C0010000F02040C000000000000000000000000"}
         :return:
         """
+        # 解锁网关请求
+        self.unlock_gw(topic)
+
         # 网关ID
         gateway_id = topic.split('/')[1].strip()
         # 断路器ID
@@ -109,9 +117,8 @@ class HongFa(GatewayClient):
         else:
             data = {'result': 'success'}
         data_str = json.dumps(data)
-        key_waiting = self.redis_conn.get(key)
-        if key_waiting:
-            self.redis_conn.set(key, data_str, ex=60)
+        self.redis_conn.publish(key, data_str)
+        # self.redis_conn.set(key, data_str, ex=60)
 
     def handle_switch_online(self, topic, msg_obj):
         """
@@ -532,8 +539,7 @@ class HongFa(GatewayClient):
     def parse_request_key(topic, payload):
         """
         @param topic:
-        @param modbus_data: F1F302410015FF10024100070e000B000B000B000B03DE03E70064
-        @param switch_id:
+        @param payload:
         @return:
         """
         """

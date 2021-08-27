@@ -19,9 +19,12 @@ class Const:
         self.__dict__[name] = value
 
     def __init__(self):
-        self.SUCCESS = 22
+        self.SUCCESS = 3203
+        self.FAILED = 3204
         self.INVALID_PARAM_ID = 41  # ID未映射到参数或参数不可写
         self.INVALID_PARAM_VALUE = 42  # 参数值格式不正确
         self.INVALID_JSON_STRING = 43  # 非法的json字符串
         self.INVALID_DEVICE_TYPE = 44  # 未找到查询设备类型
+        self.Request_Unhandled = 45  # 多次请求产生的key相同
+        self.Response_Time_Out = 46  # 网关/断路器响应超时
 

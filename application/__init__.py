@@ -4,8 +4,7 @@ from application.redisclient import RedisConn
 from config.dev import DevelopmentConfig
 from application.mqttclient.mqttclient import MqttClient
 from application.gatewayclient.hongfa import HongFa
-from application.taskscheduler import TaskScheduler
-from config.const import Const
+from application.scheduler import RequestScheduler
 
 if __name__ == '__main__':
     """
@@ -28,9 +27,8 @@ if __name__ == '__main__':
     # 启动mqtt客户端开始监听
     mqtt_client.run()
 
-    # 初始化并启动任务调度器
-    scheduler = TaskScheduler(mqtt_client, redis_conn)
-    scheduler.run()
+    # 初始化请求任务调度器
+    scheduler = RequestScheduler(mqtt_client, redis_conn)
 
     """
         初始化、启动服务
@@ -59,4 +57,4 @@ if __name__ == '__main__':
         return 'testing'
 
     # 启动服务端
-    app.run('127.0.0.1', 5000)
+    app.run(threaded=True, port=5000, host='127.0.0.1')

@@ -3,7 +3,7 @@ import re
 import sqlite3
 import time
 from json import JSONDecodeError
-
+import asyncio
 from flask import Blueprint, request
 from flask import current_app as app
 from utils.hexconverter import HexConverter
@@ -45,11 +45,7 @@ def read_gw_params():
         gen_func = eval('app.hongfa.gen_gw_%sh' % id_len_map['fc'])
         topic, payload = gen_func(gid, id_len_map['address'], id_len_map['len'])
         # app.mqtt_client.publish(topic, payload, qos=1)
-        app.scheduler.queue_up(RequestTask({
-            'topic': topic,
-            'payload': payload,
-            'qos': 0
-        }))
+        app.scheduler.assign_task(topic, payload)
     return 'success'
 
 
@@ -75,40 +71,35 @@ def set_gw_param():
         gen_func = eval('app.hongfa.gen_gw_%sh' % address_data_map['fc'])
         topic, payload = gen_func(gid, address_data_map['address'], address_data_map['data'])
         # app.mqtt_client.publish(topic, payload, qos=1)
-        app.scheduler.queue_up(RequestTask({
-            'topic': topic,
-            'payload': payload,
-            'qos': 0
-        }))
-        app.scheduler.queue_up(RequestTask({
-            'topic': topic,
-            'payload': '{"ReportAll": "*"}',
-            'qos': 0
-        }))
+
+        key, fc = app.scheduler.assign_task(topic, payload)
+
+        key, fc = app.scheduler.assign_task(topic, '{"ReportAll": "*"}')
     return 'success'
 
 @hongfa.route('/test')
-def test_func():
+async def test_func():
+    data = await async_test_func()
+    return data
+
+async def async_test_func():
     """
     测试
     @return:
     """
-    gid = 'FFD1212006105728'
+    await asyncio.sleep(5)
+
+    """gid = 'FFD1212006105728'
     sid = '6B02210710091756'
     identifier = 2
     address = '0010'
     register_count = 6
-
     gen_func = eval('app.hongfa.gen_switch_%sh' % '04')
     topic, payload = gen_func(gid, sid, identifier, address, register_count)
-    app.scheduler.queue_up(RequestTask({
-        'topic': topic,
-        'payload': payload,
-        'qos': 0
-    }))
-    # app.mqtt_client.publish(topic, payload, qos=1)
-    return 'success'
-
+    key, fc = app.scheduler.assign_task(topic, payload)
+    msg = app.redis_conn.subscribe(key)
+    return msg"""
+    return 'test async'
 
 @hongfa.route('/<string:gid>/<string:pram_id>/<int:pram_value>')
 def demo_set_report_interval(gid, pram_id, pram_value):
